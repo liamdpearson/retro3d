@@ -1,0 +1,2 @@
+loadFBX(assets/nathan/nathan.fbx): 0 verts (no mesh nodes found)
+Assertion failed: abs(aspect - std::numeric_limits<T>::epsilon()) > static_cast<T>(0), file third_party/glm/gtc/../ext/matrix_clip_space.inl, line 251

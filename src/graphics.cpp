@@ -1,10 +1,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
+#include <ufbx.h>
+
 #include "graphics.h"
 
 int SW = 0;   // overwritten from the monitor's video mode in main()
 int SH = 0;
+float vps = 0.9f;
 
 glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f, 3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -84,12 +87,6 @@ unsigned int compileShader(GLenum type, const char* src)
         std::fprintf(stderr, "Shader compile error:\n%s\n", log);
     }
     return shader;
-}
-
-
-void framebufferSizeCallback(GLFWwindow*, int width, int height)
-{
-    glViewport(0, 0, width, height);
 }
 
 
@@ -223,8 +220,85 @@ bool loadOBJ(const char* path,
 }
 
 
-Object makeObject(const char* objPath, const char* texPath,
-                  Transform transform)
+bool loadFBX(const char* path,
+             std::vector<float>& outVerts,
+             std::vector<unsigned int>& outIndices)
+{
+    ufbx_load_opts opts = {};
+    opts.target_axes = ufbx_axes_right_handed_y_up;
+    opts.target_unit_meters = 1.0f;
+
+    ufbx_error error;
+    ufbx_scene* scene = ufbx_load_file(path, &opts, &error);
+    if (!scene)
+    {
+        std::fprintf(stderr, "Failed to load %s: %s\n", path, error.description.data);
+        return false;
+    }
+
+    // Iterate NODES, not raw meshes: node->geometry_to_world bakes in the
+    // unit/axis conversion (cm->m, Z-up->Y-up) that ufbx put on the node
+    // transforms, plus each part's placement in the character. Reading
+    // mesh->vertex_position alone skips all of that.
+    for (size_t ni = 0; ni < scene->nodes.count; ni++)
+    {
+        ufbx_node* node = scene->nodes.data[ni];
+        if (!node->mesh) continue;
+
+        ufbx_mesh* mesh = node->mesh;
+        ufbx_matrix geomToWorld = node->geometry_to_world;
+        std::vector<uint32_t> tri(mesh->max_face_triangles * 3);
+
+        for (size_t fi = 0; fi < mesh->faces.count; fi++)
+        {
+            ufbx_face face = mesh->faces.data[fi];
+            size_t numTris = ufbx_triangulate_face(tri.data(), tri.size(), mesh, face);
+
+            for (size_t i = 0; i < numTris * 3; i++)
+            {
+                uint32_t corner = tri[i]; // index into the mesh's vertex attributes
+
+                ufbx_vec3 p = ufbx_get_vertex_vec3(&mesh->vertex_position, corner);
+                p = ufbx_transform_position(&geomToWorld, p); // -> world space
+                ufbx_vec2 uv = mesh->vertex_uv.exists
+                    ? ufbx_get_vertex_vec2(&mesh->vertex_uv, corner)
+                    : ufbx_vec2{0.0f, 0.0f};
+
+                outIndices.push_back((unsigned int)(outVerts.size() / 5));
+                outVerts.push_back((float)p.x);
+                outVerts.push_back((float)p.y);
+                outVerts.push_back((float)p.z);
+                outVerts.push_back((float)uv.x);
+                outVerts.push_back((float)uv.y);
+            }
+        }
+    }
+
+    // // Stage-1 sanity check: how much geometry did we get, and how big is it?
+    // // If this prints 0 verts, the load found no mesh nodes; if the bounds are
+    // // ~100+, units still aren't metric.
+    // if (!outVerts.empty()) {
+    //     float lo[3] = { outVerts[0], outVerts[1], outVerts[2] };
+    //     float hi[3] = { outVerts[0], outVerts[1], outVerts[2] };
+    //     for (size_t v = 0; v < outVerts.size(); v += 5)
+    //         for (int a = 0; a < 3; a++) {
+    //             lo[a] = std::min(lo[a], outVerts[v + a]);
+    //             hi[a] = std::max(hi[a], outVerts[v + a]);
+    //         }
+    //     std::fprintf(stderr,
+    //         "loadFBX(%s): %zu verts, bounds x[%.2f,%.2f] y[%.2f,%.2f] z[%.2f,%.2f]\n",
+    //         path, outVerts.size() / 5, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
+    // } else {
+    //     std::fprintf(stderr, "loadFBX(%s): 0 verts (no mesh nodes found)\n", path);
+    // }
+
+    ufbx_free_scene(scene);
+    return true;
+}   
+
+
+Object makeObj(const char* objPath, const char* texPath,
+               Transform transform)
 {
     Object obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
@@ -233,6 +307,20 @@ Object makeObject(const char* objPath, const char* texPath,
     obj.texture = loadTexture(texPath);
     obj.indexCount = (GLsizei)obj.indices.size();
     
+    return obj;
+}
+
+
+Object makeFbx(const char* objPath, const char* texPath,
+               Transform transform)
+{
+    Object obj;
+    loadFBX(objPath, obj.vertices, obj.indices);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
     return obj;
 }
 
@@ -352,7 +440,8 @@ int initWindow()
 {
     if (!glfwInit()) { std::fprintf(stderr, "failed to init GLFW\n"); return -1; }
 
-    const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    GLFWmonitor* moniter = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(moniter);
     SW = mode->width;
     SH = mode->height;
     lastX = SW/2, lastY = SH/2;
@@ -361,11 +450,10 @@ int initWindow()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    window = glfwCreateWindow(SW, SH, "OpenGL", nullptr, nullptr);
+    window = glfwCreateWindow(SW, SH, "OpenGL", moniter, nullptr);
     if (!window) { std::fprintf(stderr, "Failed to create window\n"); glfwTerminate(); return -1; }
     glfwSetWindowPos(window, 0, 0);
     glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
 
     glfwSetCursorPosCallback(window, mouseCallback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -400,31 +488,40 @@ void drawObj(Object& obj)
 
 
 void clearBG(float r, float g, float b, float a)
-{
+{   
+    int vpW = std::round(SW * vps);
+    int vpH = std::round(SH * vps);
+
+    int vpX = (SW - vpW);
+    int vpY = (SH - vpH);
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(vpX, vpY, vpW, vpH);
     glClearColor(r, g, b, a);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(shaderProgram);
+    glUseProgram(shaderProgram);
+    glViewport(vpX, vpY, vpW, vpH);
 
-        int fbw, fbh;
-        glfwGetFramebufferSize(window, &fbw, &fbh);
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
         
-        glm::mat4 projection = glm::perspective(
-            glm::radians(45.0f),                 // vertical field of view
-            (float)fbw / (float)fbh,             // aspect ratio
-            0.1f, 100.0f);                       // near & far clip planes
-        
-        glm::mat4 view = glm::lookAt(
-            cameraPos,         // camera position (Step 5 fills these in)
-            cameraPos + cameraFront,         // look at the origin (where the triangle is)
-            cameraUp);        // "up" direction
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f),                 // vertical field of view
+        (float)fbw / (float)fbh,             // aspect ratio
+        0.1f, 100.0f);                       // near & far clip planes
+    
+    glm::mat4 view = glm::lookAt(
+        cameraPos,         // camera position (Step 5 fills these in)
+        cameraPos + cameraFront,         // look at the origin (where the triangle is)
+        cameraUp);        // "up" direction
 
-        glm::mat4 model = glm::mat4(1.0f);       // identity: triangle stays at the origin
+    glm::mat4 model = glm::mat4(1.0f);       // identity: triangle stays at the origin
 
-        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(viewLoc,       1, GL_FALSE, glm::value_ptr(view));
-        glUniformMatrix4fv(modelLoc,      1, GL_FALSE, glm::value_ptr(model));
-        glActiveTexture(GL_TEXTURE0);
+    glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(viewLoc,       1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(modelLoc,      1, GL_FALSE, glm::value_ptr(model));
+    glActiveTexture(GL_TEXTURE0);
 }
 
 void Object::Upload()

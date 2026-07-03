@@ -25,9 +25,11 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
             cameraPos = gameCamPos;
             cameraFront = gameCamFront;
+            firstMouse = true;
         } else {
             cameraPos = editCamPos;
             cameraFront = editCamFront;
+            firstMouse = true;
         }
     }
 }
@@ -52,17 +54,21 @@ int main()
 
     // --- init objects --- //
 
-    Object gun = makeObject("assets/gun/gun.obj", "assets/gun/gun.png",
-                                Transform{0, 0, 0,  0, 45, 1.0f});
+    Object gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
+                         Transform{0, 0, 0,  0, 45, 1.0f});
 
-    Object skull = makeObject("assets/skull/skull.obj", "assets/skull/skull.png",
-                                 Transform{-1, 0, 0,  90, 90, 0.01f});
+    Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
+                           Transform{-1, 0, 0,  90, 90, 0.01f});
+
+    Object audi = makeFbx("assets/audi/audi.fbx", "assets/skull/skull.png",
+                            Transform{0, 0, 0,  0, 0, 1.0f});
 
     gun.children.push_back(&skull);
     //removeChild(gun.children, &skull);
     
     
     parents.push_back(&gun);
+    parents.push_back(&audi);
 
     // A Doom-style billboard sprite. yaw/pitch are ignored for sprites; only
     // position (first 3) and scale (last) are used. Use a 1x1 RGBA PNG with a
@@ -91,8 +97,8 @@ int main()
             obj->Draw();
         }
 
-        gun.transform.yaw += 0.1;
-        gun.transform.pitch += 0.1;
+        gun.transform.yaw += 0.1f;
+        gun.transform.pitch += 0.1f;
 
         if (editing)
         {

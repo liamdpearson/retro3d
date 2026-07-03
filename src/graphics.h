@@ -5,7 +5,7 @@
 
 #include <glm/glm.hpp>                  // vec3, mat4, basic types
 #include <glm/gtc/matrix_transform.hpp> // perspective, lookAt, rotate, radians
-#include <glm/gtc/type_ptr.hpp>       // value_ptr (hand a matrix to OpenGL)
+#include <glm/gtc/type_ptr.hpp>         // value_ptr (hand a matrix to OpenGL)
 
 #include <cstdio>
 #include <vector>
@@ -79,6 +79,7 @@ struct Object
 
 extern int SW;
 extern int SH;
+extern float vps;
 
 extern glm::vec3 cameraPos;
 extern glm::vec3 cameraFront;
@@ -113,11 +114,18 @@ unsigned int loadTexture(const char* path);
 void mouseCallback(GLFWwindow*, double xpos, double ypos);
 
 bool loadOBJ(const char* path,
-                    std::vector<float>& outVerts,
-                    std::vector<unsigned int>& outIndices);
+            std::vector<float>& outVerts,
+            std::vector<unsigned int>& outIndices);
 
-Object makeObject(const char* objPath, const char* texPath,
-                  Transform Transform);
+bool loadFBX(const char* path,
+             std::vector<float>& outVerts,
+             std::vector<unsigned int>& outIndices);
+
+Object makeObj(const char* objPath, const char* texPath,
+               Transform Transform);
+
+Object makeFbx(const char* objPath, const char* texPath,
+               Transform Transform);
 
 Object makeSprite(const char* texPath, Transform transform);
 
