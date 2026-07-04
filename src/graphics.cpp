@@ -276,7 +276,7 @@ bool loadFBX(const char* path,
              std::vector<float>& outVerts,
              std::vector<unsigned int>& outIndices,
              Skeleton& outSkel,
-             Animation& outAnim)
+             std::vector<Animation>& outAnims)
 {
     ufbx_load_opts opts = {};
     opts.target_axes = ufbx_axes_right_handed_y_up;
@@ -404,9 +404,12 @@ bool loadFBX(const char* path,
         }
     }
 
-    if (scene->anim_stacks.count > 0 && !boneNodes.empty())
+    // Bake every anim stack in the file into its own clip. All clips share the
+    // same `boneNodes` skeleton, so switching clips at runtime is just picking a
+    // different Animation to sample in computePose().
+    for (size_t si = 0; si < scene->anim_stacks.count && !boneNodes.empty(); si++)
     {
-        ufbx_anim_stack* stack = scene->anim_stacks.data[0];
+        ufbx_anim_stack* stack = scene->anim_stacks.data[si];
         ufbx_anim* anim = stack->anim;
 
         float fps = 30.0f;
@@ -416,10 +419,12 @@ bool loadFBX(const char* path,
         int frames = (int)std::ceil(dur * fps) + 1;
         if (frames < 1) frames = 1;
 
-        outAnim.fps = fps;
-        outAnim.duration = (float)dur;
-        outAnim.frameCount = frames;
-        outAnim.tracks.resize(boneNodes.size());
+        Animation out;
+        out.name = stack->name.data ? std::string(stack->name.data) : "";
+        out.fps = fps;
+        out.duration = (float)dur;
+        out.frameCount = frames;
+        out.tracks.resize(boneNodes.size());
 
         for (int f = 0; f < frames; f++)
         {
@@ -429,17 +434,18 @@ bool loadFBX(const char* path,
                 // ufbx returns the node's LOCAL (parent-relative) transform, keyframe-
                 // interpolated for us at time t. We re-store it as our own keyframe.
                 ufbx_transform lt = ufbx_evaluate_transform(anim, boneNodes[b], t);
-                outAnim.tracks[b].pos.push_back(
+                out.tracks[b].pos.push_back(
                     glm::vec3((float)lt.translation.x, (float)lt.translation.y, (float)lt.translation.z));
-                outAnim.tracks[b].rot.push_back(   // glm::quat is (w, x, y, z)!
+                out.tracks[b].rot.push_back(   // glm::quat is (w, x, y, z)!
                     glm::quat((float)lt.rotation.w, (float)lt.rotation.x,
                               (float)lt.rotation.y, (float)lt.rotation.z));
-                outAnim.tracks[b].scale.push_back(
+                out.tracks[b].scale.push_back(
                     glm::vec3((float)lt.scale.x, (float)lt.scale.y, (float)lt.scale.z));
             }
         }
-        std::fprintf(stderr, "loadFBX(%s): baked %d frames @ %.0ffps (%.2fs)\n",
-                     path, frames, fps, (float)dur);
+        std::fprintf(stderr, "loadFBX(%s): baked clip[%zu] '%s' %d frames @ %.0ffps (%.2fs)\n",
+                     path, si, out.name.c_str(), frames, fps, (float)dur);
+        outAnims.push_back(std::move(out));
     }
     std::fprintf(stderr, "loadFBX(%s): %zu verts, %zu bones\n",
                  path, outVerts.size() / VERTEX_FLOATS, outSkel.inverseBind.size());
@@ -467,7 +473,7 @@ Object makeFbx(const char* objPath, const char* texPath,
                Transform transform)
 {
     Object obj;
-    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animation);
+    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
     obj.transform = transform;
     obj.world = transform.matrix();
     obj.texture = loadTexture(texPath);
@@ -640,10 +646,12 @@ int initWindow()
 static void computePose(const Object& obj, std::vector<glm::mat4>& palette)
 {
     const Skeleton&  sk = obj.skeleton;
-    const Animation& an = obj.animation;
     int n = (int)sk.inverseBind.size();
     palette.assign(n, glm::mat4(1.0f));
-    if (n == 0 || an.frameCount == 0) return;
+    if (n == 0 || obj.currentAnim < 0 || obj.currentAnim >= (int)obj.animations.size())
+        return;
+    const Animation& an = obj.animations[obj.currentAnim];
+    if (an.frameCount == 0) return;
 
     // Which two frames to blend, and by how much.
     float dur = an.duration > 0.0f ? an.duration : 1.0f;
@@ -765,6 +773,26 @@ void Object::Upload()
 {
     uploadObject(*this);
     for (Object* child : children) child->Upload();
+}
+
+void Object::SetAnimation(int index)
+{
+    if (index < 0 || index >= (int)animations.size()) return;
+    currentAnim = index;
+    animTime = 0.0f;   // restart the new clip from its first frame
+}
+
+bool Object::SetAnimation(const std::string& name)
+{
+    for (int i = 0; i < (int)animations.size(); i++)
+    {
+        if (animations[i].name == name)
+        {
+            SetAnimation(i);
+            return true;
+        }
+    }
+    return false;
 }
 
 void Object::Draw()

@@ -60,7 +60,7 @@ int main()
     Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
                            Transform{-1, 0, 0,  90, 90, 0.01f});
 
-    Object knight = makeFbx("assets/knight/knight2.fbx", "assets/knight/knight.png",
+    Object knight = makeFbx("assets/knight/knight3.fbx", "assets/knight/knight.png",
                             Transform{0, 0, -2,  0, 0, 1.0f});
 
     gun.children.push_back(&skull);

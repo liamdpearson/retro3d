@@ -73,6 +73,7 @@ struct BoneTrack
 
 struct Animation
 {
+    std::string name;      // the FBX anim-stack name, used to select clips by name
     std::vector<BoneTrack> tracks;
     int frameCount = 0;
     float fps = 30.0f;
@@ -97,14 +98,20 @@ struct Object
     std::vector<Object*> children = {};
     bool billboard = false;  // if true, the quad is rotated to face the camera each frame
     Skeleton skeleton;
-    Animation animation;
-    float animTime = 0.0f; // seconds into the clip added to each frame
+    std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
+    int currentAnim = 0;   // index into `animations` of the clip currently playing
+    float animTime = 0.0f; // seconds into the current clip added to each frame
 
     Object() = default;
 
     void Upload();
 
     void Draw();
+
+    // Select which baked clip plays. Both reset animTime so the new clip starts
+    // from its first frame. The string form returns false if no clip matches.
+    void SetAnimation(int index);
+    bool SetAnimation(const std::string& name);
 
     ~Object();
 };
@@ -154,7 +161,7 @@ bool loadFBX(const char* path,
              std::vector<float>& outVerts,
              std::vector<unsigned int>& outIndices,
              Skeleton& outSkel,
-             Animation& outAnim);
+             std::vector<Animation>& outAnims);
 
 Object makeObj(const char* objPath, const char* texPath,
                Transform Transform);
