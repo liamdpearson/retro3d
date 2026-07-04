@@ -60,21 +60,21 @@ int main()
     Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
                            Transform{-1, 0, 0,  90, 90, 0.01f});
 
-    Object audi = makeFbx("assets/audi/audi.fbx", "assets/skull/skull.png",
-                            Transform{0, 0, 0,  0, 0, 1.0f});
+    Object knight = makeFbx("assets/knight/knight2.fbx", "assets/knight/knight.png",
+                            Transform{0, 0, -2,  0, 0, 1.0f});
 
     gun.children.push_back(&skull);
     //removeChild(gun.children, &skull);
     
     
     parents.push_back(&gun);
-    parents.push_back(&audi);
+    parents.push_back(&knight);
 
     // A Doom-style billboard sprite. yaw/pitch are ignored for sprites; only
     // position (first 3) and scale (last) are used. Use a 1x1 RGBA PNG with a
     // transparent background so the cutout looks right.
 
-    for (Object* obj : parents) obj->Upload();
+    for (Object*& obj : parents) obj->Upload();
         
     // --- render loop --- //
     while (!glfwWindowShouldClose(window))
@@ -91,7 +91,7 @@ int main()
         
         clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
 
-        for (Object* obj : parents)
+        for (Object*& obj : parents)
         {
             obj->world = obj->transform.matrix();
             obj->Draw();

@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>                  // vec3, mat4, basic types
 #include <glm/gtc/matrix_transform.hpp> // perspective, lookAt, rotate, radians
 #include <glm/gtc/type_ptr.hpp>         // value_ptr (hand a matrix to OpenGL)
+#include <glm/gtc/quaternion.hpp>       // quat slerp, mat4_cast
 
 #include <cstdio>
 #include <vector>
@@ -14,11 +15,14 @@
 #include <sstream>
 #include <map>
 #include <utility>
+#include <tuple>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 
-const float PI = 3.1415926;
+const float PI = 3.14159265358979323;
+const int VERTEX_FLOATS = 16;
+const int MAX_BONES = 100;
 
 struct Transform
 {
@@ -51,6 +55,31 @@ struct Transform
 };
 
 
+struct Skeleton
+{
+    std::vector<glm::mat4> inverseBind;
+    std::vector<int> parent;
+    std::vector<std::string> names;
+    std::vector<glm::mat4> parentWorld;
+};
+
+
+struct BoneTrack
+{
+    std::vector<glm::vec3> pos;
+    std::vector<glm::quat> rot;
+    std::vector<glm::vec3> scale;
+};
+
+struct Animation
+{
+    std::vector<BoneTrack> tracks;
+    int frameCount = 0;
+    float fps = 30.0f;
+    float duration = 0.0f; // seconds
+};
+
+
 struct Object
 {
     Transform transform;
@@ -67,6 +96,9 @@ struct Object
     glm::mat4 world = glm::mat4(1.0f);
     std::vector<Object*> children = {};
     bool billboard = false;  // if true, the quad is rotated to face the camera each frame
+    Skeleton skeleton;
+    Animation animation;
+    float animTime = 0.0f; // seconds into the clip added to each frame
 
     Object() = default;
 
@@ -104,6 +136,7 @@ extern unsigned int vs;
 extern unsigned int fs;
 extern unsigned int shaderProgram;
 extern int modelLoc, viewLoc, projectionLoc;
+extern int boneMatricesLoc;
 
 unsigned int compileShader(GLenum type, const char* src);
 
@@ -119,7 +152,9 @@ bool loadOBJ(const char* path,
 
 bool loadFBX(const char* path,
              std::vector<float>& outVerts,
-             std::vector<unsigned int>& outIndices);
+             std::vector<unsigned int>& outIndices,
+             Skeleton& outSkel,
+             Animation& outAnim);
 
 Object makeObj(const char* objPath, const char* texPath,
                Transform Transform);

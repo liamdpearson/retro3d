@@ -7,7 +7,7 @@
 
 int SW = 0;   // overwritten from the monitor's video mode in main()
 int SH = 0;
-float vps = 0.9f;
+float vps = 1.0f; // viewport scale
 
 glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f, 3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -27,6 +27,7 @@ unsigned int vs;
 unsigned int fs;
 unsigned int shaderProgram;
 int modelLoc, viewLoc, projectionLoc;
+int boneMatricesLoc;
 
 // Runs once per vertex. Its only job: set gl_Position, the vertex's final
 // position in "clip space". For now we pass our coordinates straight through.
@@ -35,16 +36,37 @@ const char* vertexShaderSrc = R"glsl(
 #version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;
+layout (location = 2) in vec3 aNormal;
+layout (location = 3) in vec4 aBoneIndices;
+layout (location = 4) in vec4 aBoneWeights;
+
+const int MAX_BONES = 100;   // keep in sync with C++ MAX_BONES
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 boneMatrices[MAX_BONES];
 
 out vec2 TexCoord;
 
 void main()
 {
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
+    float total = aBoneWeights.x + aBoneWeights.y + aBoneWeights.z + aBoneWeights.w;
+
+    vec4 pos;
+    if (total > 0.0001) {
+        // Linear-blend skinning: weighted sum of the vertex's bone palette matrices.
+        mat4 skin =
+            aBoneWeights.x * boneMatrices[int(aBoneIndices.x)] +
+            aBoneWeights.y * boneMatrices[int(aBoneIndices.y)] +
+            aBoneWeights.z * boneMatrices[int(aBoneIndices.z)] +
+            aBoneWeights.w * boneMatrices[int(aBoneIndices.w)];
+        pos = skin * vec4(aPos, 1.0);
+    } else {
+        pos = vec4(aPos, 1.0);   // unskinned (gun/skull/sprite): pass straight through
+    }
+
+    gl_Position = projection * view * model * pos;
     TexCoord = aTexCoord;
 }
 )glsl";
@@ -151,8 +173,9 @@ bool loadOBJ(const char* path,
 
     std::vector<glm::vec3> pos;
     std::vector<glm::vec2> uv;
+    std::vector<glm::vec3> normals;
 
-    std::map<std::pair<int,int>, unsigned int> uniqueMap;
+    std::map<std::tuple<int,int,int>, unsigned int> uniqueMap;
 
     std::string line;
     while(std::getline(file, line))
@@ -173,27 +196,35 @@ bool loadOBJ(const char* path,
             glm::vec2 temp = glm::vec2(u, v);
             uv.push_back(temp);
         }
+        else if (tag == "vn") {
+            float x, y, z;
+            ss >> x >> y >> z;
+            normals.push_back(glm::vec3(x, y, z));
+        }
         else if (tag == "f") {
             std::string vert;
             std::vector<unsigned int> face;
             while (ss >> vert) {
                 std::istringstream vs(vert);
-                std::string p, t;
+                std::string p, t, n;
                 std::getline(vs, p, '/');
                 std::getline(vs, t, '/');
+                std::getline(vs, n, '/');
                 int posIdx = std::stoi(p) - 1;
-                int uvIdx = t.empty() ? -1 : std::stoi(t) - 1;
+                int uvIdx =  t.empty() ? -1 : std::stoi(t) - 1;
+                int nIdx =   n.empty() ? -1 : std::stoi(n) - 1;
 
-                std::pair<int, int> key(posIdx, uvIdx);
+                std::tuple<int, int, int> key(posIdx, uvIdx, nIdx);
                 auto found = uniqueMap.find(key);
                 if (found != uniqueMap.end()) {
                     face.push_back(found->second);
                 } else {
-                    unsigned int newIndex = (unsigned int)(outVerts.size() / 5);
+                    unsigned int newIndex = (unsigned int)(outVerts.size() / VERTEX_FLOATS);
+                    // pos
                     outVerts.push_back(pos[posIdx].x);
                     outVerts.push_back(pos[posIdx].y);
                     outVerts.push_back(pos[posIdx].z);
-
+                    // uv
                     if (uvIdx >= 0) {
                         outVerts.push_back(uv[uvIdx].x);
                         outVerts.push_back(uv[uvIdx].y);
@@ -201,7 +232,17 @@ bool loadOBJ(const char* path,
                         outVerts.push_back(0.0f);
                         outVerts.push_back(0.0f);
                     }
-
+                    // normal
+                    if (nIdx >= 0) {
+                        outVerts.push_back(normals[nIdx].x);
+                        outVerts.push_back(normals[nIdx].y);
+                        outVerts.push_back(normals[nIdx].z);
+                    } else {
+                        outVerts.push_back(0.0f); outVerts.push_back(0.0f); outVerts.push_back(0.0f);
+                    }
+                    // bone indices (4) + bone weights (4) zero for now
+                    for (int i = 0; i < 8; i++) outVerts.push_back(0.0f);
+                    
                     uniqueMap[key] = newIndex;
                     face.push_back(newIndex);
                 }
@@ -220,9 +261,22 @@ bool loadOBJ(const char* path,
 }
 
 
+static glm::mat4 ufbxToGlm(const ufbx_matrix& m)
+{
+    glm::mat4 r(1.0f);
+    r[0] = glm::vec4((float)m.cols[0].x, (float)m.cols[0].y, (float)m.cols[0].z, 0.0f);
+    r[1] = glm::vec4((float)m.cols[1].x, (float)m.cols[1].y, (float)m.cols[1].z, 0.0f);
+    r[2] = glm::vec4((float)m.cols[2].x, (float)m.cols[2].y, (float)m.cols[2].z, 0.0f);
+    r[3] = glm::vec4((float)m.cols[3].x, (float)m.cols[3].y, (float)m.cols[3].z, 1.0f);
+    return r;
+}
+
+
 bool loadFBX(const char* path,
              std::vector<float>& outVerts,
-             std::vector<unsigned int>& outIndices)
+             std::vector<unsigned int>& outIndices,
+             Skeleton& outSkel,
+             Animation& outAnim)
 {
     ufbx_load_opts opts = {};
     opts.target_axes = ufbx_axes_right_handed_y_up;
@@ -236,10 +290,9 @@ bool loadFBX(const char* path,
         return false;
     }
 
-    // Iterate NODES, not raw meshes: node->geometry_to_world bakes in the
-    // unit/axis conversion (cm->m, Z-up->Y-up) that ufbx put on the node
-    // transforms, plus each part's placement in the character. Reading
-    // mesh->vertex_position alone skips all of that.
+    std::map<ufbx_node*, int> boneMap;
+    std::vector<ufbx_node*> boneNodes;
+
     for (size_t ni = 0; ni < scene->nodes.count; ni++)
     {
         ufbx_node* node = scene->nodes.data[ni];
@@ -248,6 +301,38 @@ bool loadFBX(const char* path,
         ufbx_mesh* mesh = node->mesh;
         ufbx_matrix geomToWorld = node->geometry_to_world;
         std::vector<uint32_t> tri(mesh->max_face_triangles * 3);
+
+        ufbx_skin_deformer* skin = 
+            mesh->skin_deformers.count > 0 ? mesh->skin_deformers.data[0] : nullptr;
+        std::vector<int> clusterToBone;
+        if (skin)
+        {
+            clusterToBone.resize(skin->clusters.count);
+            for (size_t c = 0; c < skin->clusters.count; c++)
+            {
+                ufbx_skin_cluster* cl = skin->clusters.data[c];
+                ufbx_node* boneNode = cl->bone_node;
+                auto it = boneMap.find(boneNode);
+                int gi;
+                if (it != boneMap.end()) {
+                    gi = it->second;
+                } else {
+                    gi = (int)outSkel.inverseBind.size();
+                    boneMap[boneNode] = gi;
+                    boneNodes.push_back(boneNode);
+
+                    // space fix
+                    outSkel.inverseBind.push_back(ufbxToGlm(cl->geometry_to_bone) *
+                                                  glm::inverse(ufbxToGlm(geomToWorld)));
+                    outSkel.parentWorld.push_back(boneNode->parent
+                                                  ? ufbxToGlm(boneNode->parent->node_to_world)
+                                                  : glm::mat4(1.0f));
+                    outSkel.names.push_back(boneNode ? std::string(boneNode->name.data) : "");
+                    outSkel.parent.push_back(-1);
+                }
+                clusterToBone[c] = gi;
+            }
+        }
 
         for (size_t fi = 0; fi < mesh->faces.count; fi++)
         {
@@ -263,34 +348,101 @@ bool loadFBX(const char* path,
                 ufbx_vec2 uv = mesh->vertex_uv.exists
                     ? ufbx_get_vertex_vec2(&mesh->vertex_uv, corner)
                     : ufbx_vec2{0.0f, 0.0f};
+                ufbx_vec3 n = mesh->vertex_normal.exists
+                    ? ufbx_get_vertex_vec3(&mesh->vertex_normal, corner)
+                    : ufbx_vec3{0.0f, 0.0f, 1.0f};
+                n = ufbx_transform_direction(&geomToWorld, n);
 
-                outIndices.push_back((unsigned int)(outVerts.size() / 5));
+                float bi[4] = {0,0,0,0};
+                float bw[4] = {0,0,0,0};
+                if (skin)
+                {
+                    uint32_t vtx = mesh->vertex_indices.data[corner];
+                    ufbx_skin_vertex sv = skin->vertices.data[vtx];
+
+                    uint32_t count = sv.num_weights < 4 ? sv.num_weights : 4;
+                    float sum = 0.0f;
+                    for (uint32_t w = 0; w < count; w++)
+                    {
+                        ufbx_skin_weight sw = skin->weights.data[sv.weight_begin + w];
+                        bi[w] = (float)clusterToBone[sw.cluster_index];
+                        bw[w] = (float)sw.weight;
+                        sum += (float)sw.weight;
+                    }
+                    if (sum > 0.0f) for (int w = 0; w < 4; w++) bw[w] /= sum;
+                }
+
+                outIndices.push_back((unsigned int)(outVerts.size() / VERTEX_FLOATS));
                 outVerts.push_back((float)p.x);
                 outVerts.push_back((float)p.y);
                 outVerts.push_back((float)p.z);
                 outVerts.push_back((float)uv.x);
                 outVerts.push_back((float)uv.y);
+                outVerts.push_back((float)n.x);
+                outVerts.push_back((float)n.y);
+                outVerts.push_back((float)n.z);
+                outVerts.push_back(bi[0]);           // bone indices
+                outVerts.push_back(bi[1]);
+                outVerts.push_back(bi[2]);
+                outVerts.push_back(bi[3]);
+                outVerts.push_back(bw[0]);           // bone weights
+                outVerts.push_back(bw[1]);
+                outVerts.push_back(bw[2]);
+                outVerts.push_back(bw[3]);
             }
         }
     }
 
-    // // Stage-1 sanity check: how much geometry did we get, and how big is it?
-    // // If this prints 0 verts, the load found no mesh nodes; if the bounds are
-    // // ~100+, units still aren't metric.
-    // if (!outVerts.empty()) {
-    //     float lo[3] = { outVerts[0], outVerts[1], outVerts[2] };
-    //     float hi[3] = { outVerts[0], outVerts[1], outVerts[2] };
-    //     for (size_t v = 0; v < outVerts.size(); v += 5)
-    //         for (int a = 0; a < 3; a++) {
-    //             lo[a] = std::min(lo[a], outVerts[v + a]);
-    //             hi[a] = std::max(hi[a], outVerts[v + a]);
-    //         }
-    //     std::fprintf(stderr,
-    //         "loadFBX(%s): %zu verts, bounds x[%.2f,%.2f] y[%.2f,%.2f] z[%.2f,%.2f]\n",
-    //         path, outVerts.size() / 5, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
-    // } else {
-    //     std::fprintf(stderr, "loadFBX(%s): 0 verts (no mesh nodes found)\n", path);
-    // }
+    for (auto& kv : boneMap)
+    {
+        ufbx_node* boneNode = kv.first;
+        int gi = kv.second;
+        if (boneNode && boneNode->parent)
+        {
+            auto pit = boneMap.find(boneNode->parent);
+            if (pit != boneMap.end()) outSkel.parent[gi] = pit->second;
+        }
+    }
+
+    if (scene->anim_stacks.count > 0 && !boneNodes.empty())
+    {
+        ufbx_anim_stack* stack = scene->anim_stacks.data[0];
+        ufbx_anim* anim = stack->anim;
+
+        float fps = 30.0f;
+        double t0 = stack->time_begin;
+        double t1 = stack->time_end;
+        double dur = t1 - t0;
+        int frames = (int)std::ceil(dur * fps) + 1;
+        if (frames < 1) frames = 1;
+
+        outAnim.fps = fps;
+        outAnim.duration = (float)dur;
+        outAnim.frameCount = frames;
+        outAnim.tracks.resize(boneNodes.size());
+
+        for (int f = 0; f < frames; f++)
+        {
+            double t = t0 + (frames > 1 ? dur * (double)f / (double)(frames - 1) : 0.0);
+            for (size_t b = 0; b < boneNodes.size(); b++)
+            {
+                // ufbx returns the node's LOCAL (parent-relative) transform, keyframe-
+                // interpolated for us at time t. We re-store it as our own keyframe.
+                ufbx_transform lt = ufbx_evaluate_transform(anim, boneNodes[b], t);
+                outAnim.tracks[b].pos.push_back(
+                    glm::vec3((float)lt.translation.x, (float)lt.translation.y, (float)lt.translation.z));
+                outAnim.tracks[b].rot.push_back(   // glm::quat is (w, x, y, z)!
+                    glm::quat((float)lt.rotation.w, (float)lt.rotation.x,
+                              (float)lt.rotation.y, (float)lt.rotation.z));
+                outAnim.tracks[b].scale.push_back(
+                    glm::vec3((float)lt.scale.x, (float)lt.scale.y, (float)lt.scale.z));
+            }
+        }
+        std::fprintf(stderr, "loadFBX(%s): baked %d frames @ %.0ffps (%.2fs)\n",
+                     path, frames, fps, (float)dur);
+    }
+    std::fprintf(stderr, "loadFBX(%s): %zu verts, %zu bones\n",
+                 path, outVerts.size() / VERTEX_FLOATS, outSkel.inverseBind.size());
 
     ufbx_free_scene(scene);
     return true;
@@ -315,7 +467,7 @@ Object makeFbx(const char* objPath, const char* texPath,
                Transform transform)
 {
     Object obj;
-    loadFBX(objPath, obj.vertices, obj.indices);
+    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animation);
     obj.transform = transform;
     obj.world = transform.matrix();
     obj.texture = loadTexture(texPath);
@@ -333,11 +485,11 @@ Object makeSprite(const char* texPath, Transform transform)
 {
     Object obj;
     obj.vertices = {
-        // x      y     z     u     v
-        -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,
-         0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-         0.5f,  0.5f, 0.0f, 1.0f, 1.0f,
-        -0.5f,  0.5f, 0.0f, 0.0f, 1.0f,
+        // x      y     z     u     v      nx    ny    nz    b0    b1    b2    b3    w0    w1    w2    w3
+        -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+         0.5f, -0.5f, 0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+         0.5f,  0.5f, 0.0f, 1.0f, 1.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        -0.5f,  0.5f, 0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
     };
     obj.indices = { 0, 1, 2,  2, 3, 0 };
     obj.transform = transform;
@@ -391,12 +543,23 @@ void uploadObject(Object &obj)
     glBufferData(GL_ARRAY_BUFFER,
              obj.vertices.size() * sizeof(float),
              obj.vertices.data(), GL_STATIC_DRAW); // change GL_STATIC_DRAW to GL_DYNAMIC_DRAW if tri will warp in 3d space
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    
+    const GLsizei stride = VERTEX_FLOATS * sizeof(float);
+    // 0: pos
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
     glEnableVertexAttribArray(0);
-
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    // 1: uv
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+    // 2: normal
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, (void*)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    // 3: bone indices (stored as floats, cast to int later)
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    // 4: bone weights
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(12 * sizeof(float)));
+    glEnableVertexAttribArray(4);
 
     glBindVertexArray(0); // stop recording (optional tidy-up)
 }
@@ -433,6 +596,12 @@ void buildShaderProgram() {
     // Tell the "tex0" sampler to read from texture unit 0 (set once).
     glUseProgram(shaderProgram);
     glUniform1i(glGetUniformLocation(shaderProgram, "tex0"), 0);
+
+    // Stage 3: bind-pose palette is all-identity, so skinning is a no-op.
+    // (Stage 4 replaces this with a per-frame Aⱼ·Bⱼ⁻¹ palette.)
+    boneMatricesLoc = glGetUniformLocation(shaderProgram, "boneMatrices");
+    std::vector<glm::mat4> identity(MAX_BONES, glm::mat4(1.0f));
+    glUniformMatrix4fv(boneMatricesLoc, MAX_BONES, GL_FALSE, glm::value_ptr(identity[0]));
 }
 
 
@@ -465,6 +634,62 @@ int initWindow()
     return 0;
 }
 
+
+// Sample obj's baked clip at obj.animTime and fill `palette` with each bone's
+// skinning matrix Aⱼ·Bⱼ⁻¹. No skeleton/clip -> identity palette (bind pose).
+static void computePose(const Object& obj, std::vector<glm::mat4>& palette)
+{
+    const Skeleton&  sk = obj.skeleton;
+    const Animation& an = obj.animation;
+    int n = (int)sk.inverseBind.size();
+    palette.assign(n, glm::mat4(1.0f));
+    if (n == 0 || an.frameCount == 0) return;
+
+    // Which two frames to blend, and by how much.
+    float dur = an.duration > 0.0f ? an.duration : 1.0f;
+    float t   = std::fmod(obj.animTime, dur);
+    if (t < 0.0f) t += dur;
+    float frameF = t * an.fps;
+    int   f0 = (int)std::floor(frameF) % an.frameCount;
+    int   f1 = (f0 + 1) % an.frameCount;
+    float a  = frameF - std::floor(frameF);
+
+    // 1) interpolate local TRS -> local matrix (slerp for rotation, lerp for pos/scale)
+    std::vector<glm::mat4> local(n);
+    for (int b = 0; b < n; b++)
+    {
+        const BoneTrack& tr = an.tracks[b];
+        glm::vec3 p = glm::mix (tr.pos[f0],   tr.pos[f1],   a);
+        glm::quat q = glm::slerp(tr.rot[f0],  tr.rot[f1],   a);
+        glm::vec3 s = glm::mix (tr.scale[f0], tr.scale[f1], a);
+        local[b] = glm::translate(glm::mat4(1.0f), p)
+                 * glm::mat4_cast(q)
+                 * glm::scale(glm::mat4(1.0f), s);
+    }
+
+    // 2) walk the hierarchy -> world matrices. Bones aren't guaranteed parent-first,
+    //    so resolve iteratively until each bone's parent is ready.
+    std::vector<glm::mat4> world(n);
+    std::vector<char>      done(n, 0);
+    int remaining = n;
+    while (remaining > 0)
+    {
+        int progressed = 0;
+        for (int b = 0; b < n; b++)
+        {
+            if (done[b]) continue;
+            int par = sk.parent[b];
+            if (par < 0)        { world[b] = sk.parentWorld[b] * local[b]; done[b] = 1; remaining--; progressed = 1; }
+            else if (done[par]) { world[b] = world[par]        * local[b]; done[b] = 1; remaining--; progressed = 1; }
+        }
+        if (!progressed) break;   // guard against a broken parent chain
+    }
+
+    // 3) palette = animated world * inverse bind
+    for (int b = 0; b < n; b++) palette[b] = world[b] * sk.inverseBind[b];
+}
+
+
 void drawObj(Object& obj)
 {
     glm::mat4 model;
@@ -480,6 +705,18 @@ void drawObj(Object& obj)
         model = obj.world;
     }
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+    // Skinned meshes advance their clip and upload a fresh bone palette. Unskinned
+    // meshes leave the palette alone — their zero-weight verts take the shader's
+    // pass-through branch, so stale palette data never touches them.
+    if (!obj.skeleton.inverseBind.empty())
+    {
+        obj.animTime += deltaTime;
+        std::vector<glm::mat4> palette;
+        computePose(obj, palette);
+        GLsizei count = (GLsizei)std::min((size_t)MAX_BONES, palette.size());
+        glUniformMatrix4fv(boneMatricesLoc, count, GL_FALSE, glm::value_ptr(palette[0]));
+    }
 
     glBindTexture(GL_TEXTURE_2D, obj.texture);
     glBindVertexArray(obj.VAO);

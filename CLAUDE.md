@@ -57,3 +57,9 @@ Getting animated characters is a staged effort. FBX parsing (done) is the easy p
 1. **Stage 2 — Expand the vertex format for skinning.** Grow the fixed 5-float (pos+uv) layout to add `boneIndices` (ivec4), `boneWeights` (vec4), and `normal` (vec3). Update `uploadObject()`'s stride and attribute pointers, and the vertex shader's `layout` locations, in lockstep (see the "Fixed vertex format" note above). Have `loadFBX()` fill the new attributes (normals now; weights/ids can be zero until Stage 3).
 2. **Stage 3 — Skeleton + linear-blend skinning shader.** Add a `Skeleton` (bone hierarchy + per-bone inverse bind matrices) alongside `Object`, populated from the FBX skin clusters. Rewrite the vertex shader to take `uniform mat4 boneMatrices[N]` and blend `boneWeights[i] * boneMatrices[boneIndices[i]]`. Upload a bind-pose palette and confirm the rest pose still renders.
 3. **Stage 4 — Animation clip sampling.** Store per-bone position/rotation/scale keyframes from the FBX. Each frame: sample the clip, compose local bone transforms, walk the hierarchy to world-space matrices, multiply by inverse bind matrices, and upload the palette. Use `glm::quat` + `slerp` for rotations (keeps the matrix-based, gimbal-lock-free approach).
+
+
+## Remember:
+ufbx_transform_direction applies the full matrix, which is only correct for normals under rotation/uniform scale. Non-uniform scale needs the inverse-transpose. Fine for Stage 2 since nothing reads normals yet — flag it for when you add lighting.
+
+Space mismatch. We bake geometry_to_world into positions but store ufbx's raw geometry_to_bone as the inverse bind. That's invisible now (identity palette), but Stage 4's non-identity palette will need to reconcile the two (either store geometry_to_bone · geometry_to_world⁻¹, or stop baking positions for skinned meshes).
