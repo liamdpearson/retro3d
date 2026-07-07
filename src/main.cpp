@@ -55,24 +55,19 @@ int main()
     // --- init objects --- //
 
     Object gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
-                         Transform{0, 0, 0,  0, 45, 1.0f});
+                         Transform{0, 0, 0,  0, 0, 1.0f});
 
     Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
                            Transform{-1, 0, 0,  90, 90, 0.01f});
 
-    Object knight = makeFbx("assets/knight/knight3.fbx", "assets/knight/knight.png",
-                            Transform{0, 0, -2,  0, 0, 1.0f});
+    // Object knight = makeFbx("assets/knight/knight.fbx", "assets/knight/knight.png",
+    //                         Transform{0, 0, -2,  0, 0, 1.0f});
 
     gun.children.push_back(&skull);
-    //removeChild(gun.children, &skull);
+    // removeChild(gun.children, &skull);
     
     
     parents.push_back(&gun);
-    parents.push_back(&knight);
-
-    // A Doom-style billboard sprite. yaw/pitch are ignored for sprites; only
-    // position (first 3) and scale (last) are used. Use a 1x1 RGBA PNG with a
-    // transparent background so the cutout looks right.
 
     for (Object*& obj : parents) obj->Upload();
         
@@ -96,9 +91,9 @@ int main()
             obj->world = obj->transform.matrix();
             obj->Draw();
         }
-
-        gun.transform.yaw += 0.1f;
-        gun.transform.pitch += 0.1f;
+        
+        gun.transform.yaw += 0.1;
+        gun.transform.pitch += 0.1;
 
         if (editing)
         {

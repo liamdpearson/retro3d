@@ -29,6 +29,12 @@ unsigned int shaderProgram;
 int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
 
+int lightDirLoc, lightColorLoc, lightAmbientLoc;
+
+glm::vec3 lightDir{0.0f, 0.0f, 1.0f};
+glm::vec3 lightColor{1.0f, 1.0f, 1.0f};
+float lightAmbient = 0.1f;
+
 // Runs once per vertex. Its only job: set gl_Position, the vertex's final
 // position in "clip space". For now we pass our coordinates straight through.
 // `layout (location = 0)` ties aPos to attribute slot 0 (we configure slot 0 below).
@@ -48,6 +54,7 @@ uniform mat4 projection;
 uniform mat4 boneMatrices[MAX_BONES];
 
 out vec2 TexCoord;
+out vec3 Normal;
 
 void main()
 {
@@ -68,24 +75,35 @@ void main()
 
     gl_Position = projection * view * model * pos;
     TexCoord = aTexCoord;
+    Normal = mat3(model) * aNormal;
 }
 )glsl";
 
 
 // Runs once per fragment (≈ per pixel the triangle covers). Outputs the color.
-// Here every fragment is the same orange.
 const char* fragmentShaderSrc = R"glsl(
 #version 330 core
 out vec4 FragColor;
 
 in vec2 TexCoord;
+in vec3 Normal;
 uniform sampler2D tex0;
+uniform vec3 LightDir;
+uniform vec3 LightColor;
+uniform float LightAmbient;
 
 void main()
 {
+    vec3 n = normalize(Normal);
+    vec3 l = normalize(-LightDir);
+
     vec4 c = texture(tex0, TexCoord);
     if (c.a < 0.5) discard;   // Doom-style cutout: drop transparent texels entirely
-    FragColor = c;
+
+    float diffuse = max(dot(n, l), 0.0);
+    vec3 lighting = LightAmbient + diffuse * LightColor;
+
+    FragColor = vec4(c.rgb * lighting, c.a);
 }
 )glsl";
 
@@ -595,6 +613,10 @@ void buildShaderProgram() {
     viewLoc       = glGetUniformLocation(shaderProgram, "view");
     projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
+    lightDirLoc     = glGetUniformLocation(shaderProgram, "LightDir");
+    lightColorLoc   = glGetUniformLocation(shaderProgram, "LightColor");
+    lightAmbientLoc = glGetUniformLocation(shaderProgram, "LightAmbient");
+
     // The individual shaders are now baked into the program; we can delete them.
     glDeleteShader(vs);
     glDeleteShader(fs);
@@ -766,6 +788,10 @@ void clearBG(float r, float g, float b, float a)
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
     glUniformMatrix4fv(viewLoc,       1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(modelLoc,      1, GL_FALSE, glm::value_ptr(model));
+
+    glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDir));
+    glUniform3fv(lightColorLoc, 1, glm::value_ptr(lightColor));
+    glUniform1f(lightAmbientLoc, lightAmbient);
     glActiveTexture(GL_TEXTURE0);
 }
 

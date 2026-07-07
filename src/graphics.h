@@ -81,6 +81,14 @@ struct Animation
 };
 
 
+struct Light
+{
+    glm::vec3 pos;
+    glm::vec3 dir;
+    glm::vec3 color;
+};
+
+
 struct Object
 {
     Transform transform;
@@ -143,6 +151,7 @@ extern unsigned int vs;
 extern unsigned int fs;
 extern unsigned int shaderProgram;
 extern int modelLoc, viewLoc, projectionLoc;
+extern int lightDirLoc, lightColorLoc, lightAmbientLoc;
 extern int boneMatricesLoc;
 
 unsigned int compileShader(GLenum type, const char* src);
