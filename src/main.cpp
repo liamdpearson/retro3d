@@ -60,6 +60,9 @@ int main()
     Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
                            Transform{-1, 0, 0,  90, 90, 0.01f});
 
+    Object ground = makeObj("assets/ground/ground2.obj", "assets/ground/ground.png",
+                           Transform{0, -10, 0,  0, 0, 1.0f});
+
     // Object knight = makeFbx("assets/knight/knight.fbx", "assets/knight/knight.png",
     //                         Transform{0, 0, -2,  0, 0, 1.0f});
 
@@ -68,6 +71,7 @@ int main()
     
     
     parents.push_back(&gun);
+    parents.push_back(&ground);
 
     for (Object*& obj : parents) obj->Upload();
         
