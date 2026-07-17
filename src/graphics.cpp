@@ -28,11 +28,8 @@ unsigned int fs;
 unsigned int shaderProgram;
 int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
+int lightModeLoc, objectLightLoc;
 
-int lightDirLoc, lightColorLoc, lightAmbientLoc;
-
-glm::vec3 lightDir{0.0f, 0.0f, 1.0f};
-glm::vec3 lightColor{1.0f, 1.0f, 1.0f};
 float lightAmbient = 0.1f;
 
 // Runs once per vertex. Its only job: set gl_Position, the vertex's final
@@ -45,6 +42,7 @@ layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec3 aNormal;
 layout (location = 3) in vec4 aBoneIndices;
 layout (location = 4) in vec4 aBoneWeights;
+layout (location = 5) in vec3 aBakedColor;
 
 const int MAX_BONES = 100;   // keep in sync with C++ MAX_BONES
 
@@ -55,6 +53,7 @@ uniform mat4 boneMatrices[MAX_BONES];
 
 out vec2 TexCoord;
 out vec3 Normal;
+out vec3 BakedColor;
 
 void main()
 {
@@ -75,6 +74,7 @@ void main()
 
     gl_Position = projection * view * model * pos;
     TexCoord = aTexCoord;
+    BakedColor = aBakedColor;
     Normal = mat3(model) * aNormal;
 }
 )glsl";
@@ -87,21 +87,20 @@ out vec4 FragColor;
 
 in vec2 TexCoord;
 in vec3 Normal;
+in vec3 BakedColor;
 uniform sampler2D tex0;
-uniform vec3 LightDir;
-uniform vec3 LightColor;
-uniform float LightAmbient;
+
+uniform int LightMode;      // 0 = baked per-vertex, 1 = per-object dynamic
+uniform vec3 ObjectLight;   // only read when LightMode == 1
 
 void main()
 {
-    vec3 n = normalize(Normal);
-    vec3 l = normalize(-LightDir);
-
     vec4 c = texture(tex0, TexCoord);
     if (c.a < 0.5) discard;   // Doom-style cutout: drop transparent texels entirely
 
-    float diffuse = max(dot(n, l), 0.0);
-    vec3 lighting = LightAmbient + diffuse * LightColor;
+    // Static geometry carries its lighting in the vertex data; movers get one
+    // value sampled at their origin, so the whole mesh shades uniformly.
+    vec3 lighting = (LightMode == 1) ? ObjectLight : BakedColor;
 
     FragColor = vec4(c.rgb * lighting, c.a);
 }
@@ -260,6 +259,7 @@ bool loadOBJ(const char* path,
                     }
                     // bone indices (4) + bone weights (4) zero for now
                     for (int i = 0; i < 8; i++) outVerts.push_back(0.0f);
+                    for (int i = 0; i < 3; i++) outVerts.push_back(1.0f);
                     
                     uniqueMap[key] = newIndex;
                     face.push_back(newIndex);
@@ -407,6 +407,9 @@ bool loadFBX(const char* path,
                 outVerts.push_back(bw[1]);
                 outVerts.push_back(bw[2]);
                 outVerts.push_back(bw[3]);
+
+                // add 3 more 0's will be filled later with baked color
+                outVerts.push_back(1.0f); outVerts.push_back(1.0f); outVerts.push_back(1.0f);
             }
         }
     }
@@ -474,10 +477,11 @@ bool loadFBX(const char* path,
 
 
 Object makeObj(const char* objPath, const char* texPath,
-               Transform transform)
+               Transform transform, bool isStatic)
 {
     Object obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
+    obj.isStatic = isStatic;
     obj.transform = transform;
     obj.world = transform.matrix();
     obj.texture = loadTexture(texPath);
@@ -487,6 +491,174 @@ Object makeObj(const char* objPath, const char* texPath,
 }
 
 
+// Sample every light at a single world-space point. Deliberately has no normal
+// term: the caller applies one value to a whole mesh, so there is no surface to
+// take a lambert against. Brightness therefore falls off with distance alone.
+// Keep the attenuation curve identical to bakeObjectLighting()'s, or movers and
+// the baked floor beneath them will disagree about how bright the room is.
+glm::vec3 sampleLightAt(const glm::vec3& p)
+{
+    glm::vec3 lit(lightAmbient);
+
+    for (const Light* light : lights)
+    {
+        glm::vec3 toLight = light->pos - p;
+        float dist = glm::length(toLight);
+
+        float atten = light->intensity / (1.0f + dist * dist);
+        lit += light->color * atten;
+    }
+
+    return glm::min(lit, glm::vec3(1.0f));
+}
+
+
+// A world-space triangle that can block light during the bake.
+struct Tri { glm::vec3 a, b, c; };
+
+
+// Möller–Trumbore. Two-sided on purpose: the back face of a closed mesh blocks
+// light just as well as the front, so there's no winding cull here. Returns on
+// the first hit — a shadow ray only cares *whether* something blocks, not what.
+static bool rayOccluded(const glm::vec3& origin, const glm::vec3& dir,
+                        float maxDist, const std::vector<Tri>& tris)
+{
+    const float EPS = 1e-6f;
+
+    for (const Tri& t : tris)
+    {
+        glm::vec3 e1 = t.b - t.a;
+        glm::vec3 e2 = t.c - t.a;
+        glm::vec3 p  = glm::cross(dir, e2);
+        float det = glm::dot(e1, p);
+        if (glm::abs(det) < EPS) continue;   // ray runs parallel to the triangle
+
+        float invDet = 1.0f / det;
+        glm::vec3 tv = origin - t.a;
+
+        float u = glm::dot(tv, p) * invDet;
+        if (u < 0.0f || u > 1.0f) continue;
+
+        glm::vec3 q = glm::cross(tv, e1);
+        float v = glm::dot(dir, q) * invDet;
+        if (v < 0.0f || u + v > 1.0f) continue;
+
+        float hit = glm::dot(e2, q) * invDet;
+        if (hit > EPS && hit < maxDist) return true;   // blocked before the light
+    }
+    return false;
+}
+
+
+// Flatten every static triangle in the scene into world space. Occlusion is a
+// scene-wide property, so this must run over the whole graph before any vertex
+// is baked. Dynamic objects are deliberately skipped: they move, and a shadow
+// baked from them would not.
+static void collectOccluders(Object& obj, const glm::mat4& parentWorld,
+                             std::vector<Tri>& out)
+{
+    glm::mat4 world = parentWorld * obj.transform.matrix();
+
+    if (obj.isStatic)
+    {
+        for (size_t i = 0; i + 2 < obj.indices.size(); i += 3)
+        {
+            Tri t;
+            glm::vec3* corner[3] = { &t.a, &t.b, &t.c };
+            for (int c = 0; c < 3; c++)
+            {
+                size_t v = (size_t)obj.indices[i + c] * VERTEX_FLOATS;
+                glm::vec3 local(obj.vertices[v + 0], obj.vertices[v + 1], obj.vertices[v + 2]);
+                *corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
+            }
+            out.push_back(t);
+        }
+    }
+
+    for (Object* child : obj.children) collectOccluders(*child, world, out);
+}
+
+
+// Bake per-vertex irradiance into the last 3 floats of every static vertex.
+// parentWorld mirrors the composition Draw() does, so static children of a
+// static parent bake in their true world position.
+static void bakeObjectLighting(Object& obj, const glm::mat4& parentWorld,
+                               const std::vector<Tri>& occluders)
+{
+    glm::mat4 world = parentWorld * obj.transform.matrix();
+
+    if (obj.isStatic)
+    {
+        // Inverse-transpose so normals survive any non-uniform scale baked into
+        // the geometry by loadFBX. Transform only ever applies uniform scale, but
+        // this costs nothing here and is correct either way.
+        glm::mat3 normalMat = glm::transpose(glm::inverse(glm::mat3(world)));
+
+        for (size_t v = 0; v + VERTEX_FLOATS <= obj.vertices.size(); v += VERTEX_FLOATS)
+        {
+            glm::vec3 localPos(obj.vertices[v + 0], obj.vertices[v + 1], obj.vertices[v + 2]);
+            glm::vec3 localNrm(obj.vertices[v + 5], obj.vertices[v + 6], obj.vertices[v + 7]);
+
+            glm::vec3 worldPos = glm::vec3(world * glm::vec4(localPos, 1.0f));
+            glm::vec3 n = glm::normalize(normalMat * localNrm);
+
+            glm::vec3 lit(lightAmbient);
+
+            for (const Light* light : lights)
+            {
+                glm::vec3 toLight = light->pos - worldPos;
+                float dist = glm::length(toLight);
+                if (dist < 0.0001f) continue;
+
+                glm::vec3 l = toLight / dist;
+                float lambert = glm::max(glm::dot(n, l), 0.0f);
+                if (lambert <= 0.0f) continue;   // facing away, no contribution
+
+                // Lift the ray off the surface before firing it. Without this the
+                // vertex re-hits the very triangles it sits on and every surface
+                // shadows itself — the classic acne speckle.
+                glm::vec3 origin = worldPos + n * SHADOW_BIAS;
+                if (rayOccluded(origin, l, dist, occluders)) continue;
+
+                // 1 + d² rather than d² so a light sitting on a vertex doesn't
+                // divide by zero. Not physical, but stable and easy to tune.
+                float atten = light->intensity / (1.0f + dist * dist);
+
+                lit += light->color * lambert * atten;
+            }
+
+            obj.vertices[v + 16] = glm::min(lit.r, 1.0f);
+            obj.vertices[v + 17] = glm::min(lit.g, 1.0f);
+            obj.vertices[v + 18] = glm::min(lit.b, 1.0f);
+        }
+
+        std::fprintf(stderr, "  baked %zu verts against %zu lights\n",
+                     obj.vertices.size() / VERTEX_FLOATS, lights.size());
+    }
+
+    for (Object* child : obj.children) bakeObjectLighting(*child, world, occluders);
+}
+
+
+// Bake the whole scene. Call once after the scene graph is assembled and the
+// lights are placed, but before Upload() — the result is folded into the vertex
+// data, so a baked object must never move afterwards.
+void bakeSceneLighting()
+{
+    double start = glfwGetTime();
+
+    std::vector<Tri> occluders;
+    for (Object* obj : parents) collectOccluders(*obj, glm::mat4(1.0f), occluders);
+
+    std::fprintf(stderr, "bake: %zu occluder tris\n", occluders.size());
+
+    for (Object* obj : parents) bakeObjectLighting(*obj, glm::mat4(1.0f), occluders);
+
+    std::fprintf(stderr, "bake: done in %.2fs\n", glfwGetTime() - start);
+}
+
+
+// for animated objects so always dynamic
 Object makeFbx(const char* objPath, const char* texPath,
                Transform transform)
 {
@@ -498,54 +670,6 @@ Object makeFbx(const char* objPath, const char* texPath,
     obj.indexCount = (GLsizei)obj.indices.size();
 
     return obj;
-}
-
-
-// A billboard sprite: a 1x1 quad in the XY plane, facing +Z, centered on origin.
-// No OBJ file — the geometry is just two triangles. The transform's yaw/pitch are
-// ignored (billboardModel rebuilds the rotation each frame); only pos and scale matter.
-// Layout matches loadOBJ: 5 floats per vertex (x, y, z, u, v).
-Object makeSprite(const char* texPath, Transform transform)
-{
-    Object obj;
-    obj.vertices = {
-        // x      y     z     u     v      nx    ny    nz    b0    b1    b2    b3    w0    w1    w2    w3
-        -0.5f, -0.5f, 0.0f, 0.0f, 0.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-         0.5f, -0.5f, 0.0f, 1.0f, 0.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-         0.5f,  0.5f, 0.0f, 1.0f, 1.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f, 0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-    };
-    obj.indices = { 0, 1, 2,  2, 3, 0 };
-    obj.transform = transform;
-    obj.world = transform.matrix();
-    obj.texture = loadTexture(texPath);
-    obj.indexCount = (GLsizei)obj.indices.size();
-    obj.billboard = true;
-    return obj;
-}
-
-
-// Build the model matrix for a Doom-style cylindrical billboard. The quad yaws to
-// face the camera but stays vertical (no tilt when you look up/down).
-glm::mat4 billboardModel(const glm::vec3& pos, float scale, const glm::vec3& camPos)
-{
-    // Direction from the sprite to the camera, flattened onto the XZ plane so the
-    // sprite only spins about the vertical axis.
-    glm::vec3 toCam = camPos - pos;
-    toCam.y = 0.0f;
-    toCam = glm::normalize(toCam);
-
-    glm::vec3 up    = glm::vec3(0.0f, 1.0f, 0.0f);
-    glm::vec3 right = glm::normalize(glm::cross(up, toCam));
-
-    // Drop the basis vectors straight into the matrix columns (right, up, forward),
-    // pre-scaled, with pos as the translation column. This is T * R * S in one step.
-    glm::mat4 model(1.0f);
-    model[0] = glm::vec4(right  * scale, 0.0f);
-    model[1] = glm::vec4(up     * scale, 0.0f);
-    model[2] = glm::vec4(toCam  * scale, 0.0f);
-    model[3] = glm::vec4(pos,           1.0f);
-    return model;
 }
 
 
@@ -584,6 +708,9 @@ void uploadObject(Object &obj)
     // 4: bone weights
     glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(12 * sizeof(float)));
     glEnableVertexAttribArray(4);
+    // 5: baked color
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, (void*)(16 * sizeof(float)));
+    glEnableVertexAttribArray(5);
 
     glBindVertexArray(0); // stop recording (optional tidy-up)
 }
@@ -613,9 +740,8 @@ void buildShaderProgram() {
     viewLoc       = glGetUniformLocation(shaderProgram, "view");
     projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
-    lightDirLoc     = glGetUniformLocation(shaderProgram, "LightDir");
-    lightColorLoc   = glGetUniformLocation(shaderProgram, "LightColor");
-    lightAmbientLoc = glGetUniformLocation(shaderProgram, "LightAmbient");
+    lightModeLoc   = glGetUniformLocation(shaderProgram, "LightMode");
+    objectLightLoc = glGetUniformLocation(shaderProgram, "ObjectLight");
 
     // The individual shaders are now baked into the program; we can delete them.
     glDeleteShader(vs);
@@ -723,18 +849,24 @@ static void computePose(const Object& obj, std::vector<glm::mat4>& palette)
 void drawObj(Object& obj)
 {
     glm::mat4 model;
-    if (obj.billboard) {
-        // Rebuilt every frame so the quad faces the camera (Doom sprite). Pull
-        // world position from the translation column and uniform scale from a
-        // basis column length of the world matrix.
-        glm::vec3 worldPos   = glm::vec3(obj.world[3]);
-        float     worldScale = glm::length(glm::vec3(obj.world[0]));
-        model = billboardModel(worldPos, worldScale, cameraPos);
-    } else {
-        // The world matrix already encodes translation, rotation, and scale.
-        model = obj.world;
-    }
+    // The world matrix already encodes translation, rotation, and scale.
+    model = obj.world;
+
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+    // Static meshes already carry their lighting per-vertex. Movers get one value
+    // sampled at their world origin — column 3 of the world matrix is its
+    // translation, which is the object's origin without needing to decompose.
+    if (obj.isStatic)
+    {
+        glUniform1i(lightModeLoc, 0);
+    }
+    else
+    {
+        glm::vec3 lit = sampleLightAt(glm::vec3(obj.world[3]));
+        glUniform3fv(objectLightLoc, 1, glm::value_ptr(lit));
+        glUniform1i(lightModeLoc, 1);
+    }
 
     // Skinned meshes advance their clip and upload a fresh bone palette. Unskinned
     // meshes leave the palette alone — their zero-weight verts take the shader's
@@ -789,9 +921,6 @@ void clearBG(float r, float g, float b, float a)
     glUniformMatrix4fv(viewLoc,       1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(modelLoc,      1, GL_FALSE, glm::value_ptr(model));
 
-    glUniform3fv(lightDirLoc, 1, glm::value_ptr(lightDir));
-    glUniform3fv(lightColorLoc, 1, glm::value_ptr(lightColor));
-    glUniform1f(lightAmbientLoc, lightAmbient);
     glActiveTexture(GL_TEXTURE0);
 }
 

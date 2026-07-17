@@ -21,8 +21,13 @@
 #include <iostream>
 
 const float PI = 3.14159265358979323;
-const int VERTEX_FLOATS = 16;
+const int VERTEX_FLOATS = 19;
 const int MAX_BONES = 100;
+
+// How far to lift a shadow ray off the surface it starts on. Too small and
+// surfaces self-shadow into speckle; too large and contact shadows detach.
+// Tuned for a scene measured in metres — rescale if your units change.
+const float SHADOW_BIAS = 1e-3f;
 
 struct Transform
 {
@@ -84,8 +89,8 @@ struct Animation
 struct Light
 {
     glm::vec3 pos;
-    glm::vec3 dir;
     glm::vec3 color;
+    float intensity;
 };
 
 
@@ -98,13 +103,13 @@ struct Object
     unsigned int texture = 0;
     GLsizei indexCount = 0;
 
+    bool isStatic = false;
 
     // World-space transform matrix, recomputed each frame by Draw(). Keeping it
     // as a matrix (rather than decomposing back to yaw/pitch) avoids gimbal lock
     // and preserves any roll produced by composing rotated parents and children.
     glm::mat4 world = glm::mat4(1.0f);
     std::vector<Object*> children = {};
-    bool billboard = false;  // if true, the quad is rotated to face the camera each frame
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
     int currentAnim = 0;   // index into `animations` of the clip currently playing
@@ -144,6 +149,7 @@ extern const char* vertexShaderSrc;
 extern const char* fragmentShaderSrc;
 
 extern std::vector<Object*> parents;
+extern std::vector<Light*> lights;
 
 extern GLFWwindow* window;
 
@@ -151,8 +157,8 @@ extern unsigned int vs;
 extern unsigned int fs;
 extern unsigned int shaderProgram;
 extern int modelLoc, viewLoc, projectionLoc;
-extern int lightDirLoc, lightColorLoc, lightAmbientLoc;
 extern int boneMatricesLoc;
+extern int lightModeLoc, objectLightLoc;
 
 unsigned int compileShader(GLenum type, const char* src);
 
@@ -173,14 +179,19 @@ bool loadFBX(const char* path,
              std::vector<Animation>& outAnims);
 
 Object makeObj(const char* objPath, const char* texPath,
-               Transform Transform);
+               Transform Transform, bool isStatic);
 
+// for animated objects
 Object makeFbx(const char* objPath, const char* texPath,
                Transform Transform);
 
-Object makeSprite(const char* texPath, Transform transform);
+// Sample all lights at one world-space point, for lighting a whole mover at once.
+glm::vec3 sampleLightAt(const glm::vec3& p);
 
-glm::mat4 billboardModel(const glm::vec3& pos, float scale, const glm::vec3& camPos);
+// Bake vertex lighting for every static object in `parents`, with static
+// geometry casting shadows. Call after the scene graph is built and the lights
+// are placed, before Upload(). Static objects must not move after baking.
+void bakeSceneLighting();
 
 void uploadObject(Object &obj);
 

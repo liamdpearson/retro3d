@@ -7,6 +7,7 @@ glm::vec3 editCamPos   = glm::vec3(0.0f, 0.0f, 3.0f);
 glm::vec3 editCamFront = glm::vec3(0.0f, 0.0f, -1.0f);
 
 std::vector<Object*> parents;
+std::vector<Light*> lights;
 bool paused = false;
 bool editing = true;
 
@@ -55,24 +56,28 @@ int main()
     // --- init objects --- //
 
     Object gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
-                         Transform{0, 0, 0,  0, 0, 1.0f});
+                         Transform{0, 0, 0,  0, 0, 1.0f}, true);
 
     Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
-                           Transform{-1, 0, 0,  90, 90, 0.01f});
+                           Transform{0, 0, -0.5,  90, 90, 0.01f}, true);
 
-    Object ground = makeObj("assets/ground/ground2.obj", "assets/ground/ground.png",
-                           Transform{0, -10, 0,  0, 0, 1.0f});
-
-    // Object knight = makeFbx("assets/knight/knight.fbx", "assets/knight/knight.png",
-    //                         Transform{0, 0, -2,  0, 0, 1.0f});
+    Object knight = makeFbx("assets/knight/knight.fbx", "assets/knight/knight.png",
+                            Transform{0, 0, -2,  0, 0, 1.0f});
 
     gun.children.push_back(&skull);
     // removeChild(gun.children, &skull);
-    
-    
     parents.push_back(&gun);
-    parents.push_back(&ground);
+    parents.push_back(&knight);
 
+    
+    // --- init lights --- //
+
+    Light light = Light{glm::vec3{0.0f, 0.0f, 1.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 1.0f};
+
+    lights.push_back(&light);
+
+
+    bakeSceneLighting();
     for (Object*& obj : parents) obj->Upload();
         
     // --- render loop --- //
@@ -95,9 +100,6 @@ int main()
             obj->world = obj->transform.matrix();
             obj->Draw();
         }
-        
-        gun.transform.yaw += 0.1;
-        gun.transform.pitch += 0.1;
 
         if (editing)
         {
