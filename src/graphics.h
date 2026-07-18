@@ -24,6 +24,9 @@ const float PI = 3.14159265358979323;
 const int VERTEX_FLOATS = 19;
 const int MAX_BONES = 100;
 
+// Vertical field of view of the camera, in degrees.
+const float FOV = 90.0f;
+
 // How far to lift a shadow ray off the surface it starts on. Too small and
 // surfaces self-shadow into speckle; too large and contact shadows detach.
 // Tuned for a scene measured in metres — rescale if your units change.
@@ -91,6 +94,7 @@ struct Light
     glm::vec3 pos;
     glm::vec3 color;
     float intensity;
+    float radius;
 };
 
 

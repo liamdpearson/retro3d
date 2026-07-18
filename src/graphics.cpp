@@ -30,7 +30,7 @@ int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
 int lightModeLoc, objectLightLoc;
 
-float lightAmbient = 0.1f;
+float lightAmbient = 0.2f;
 
 // Runs once per vertex. Its only job: set gl_Position, the vertex's final
 // position in "clip space". For now we pass our coordinates straight through.
@@ -505,7 +505,7 @@ glm::vec3 sampleLightAt(const glm::vec3& p)
         glm::vec3 toLight = light->pos - p;
         float dist = glm::length(toLight);
 
-        float atten = light->intensity / (1.0f + dist * dist);
+        float atten = light->intensity / (1.0f + (dist * dist / light->radius));
         lit += light->color * atten;
     }
 
@@ -622,7 +622,7 @@ static void bakeObjectLighting(Object& obj, const glm::mat4& parentWorld,
 
                 // 1 + d² rather than d² so a light sitting on a vertex doesn't
                 // divide by zero. Not physical, but stable and easy to tune.
-                float atten = light->intensity / (1.0f + dist * dist);
+                float atten = light->intensity / (1.0f + (dist * dist / light->radius));
 
                 lit += light->color * lambert * atten;
             }
@@ -906,7 +906,7 @@ void clearBG(float r, float g, float b, float a)
     glfwGetFramebufferSize(window, &fbw, &fbh);
         
     glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f),                 // vertical field of view
+        glm::radians(FOV),                   // vertical field of view
         (float)fbw / (float)fbh,             // aspect ratio
         0.1f, 100.0f);                       // near & far clip planes
     

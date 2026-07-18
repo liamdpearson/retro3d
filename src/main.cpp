@@ -54,25 +54,21 @@ int main()
     glfwSetKeyCallback(window, key_callback);
 
     // --- init objects --- //
-
+    // 3d obj src, tex src, transform, static boolean
     Object gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
-                         Transform{0, 0, 0,  0, 0, 1.0f}, true);
+                         Transform{0, 0, 0,  0, 0, 5.0f}, true);
 
-    Object skull = makeObj("assets/skull/skull.obj", "assets/skull/skull.png",
-                           Transform{0, 0, -0.5,  90, 90, 0.01f}, true);
+    Object level0 = makeObj("assets/level0/level0.obj", "assets/level0/level0.jpg",
+                            Transform{0, 0, 0,  0, 0, 1.0f}, true);
 
-    Object knight = makeFbx("assets/knight/knight.fbx", "assets/knight/knight.png",
-                            Transform{0, 0, -2,  0, 0, 1.0f});
-
-    gun.children.push_back(&skull);
     // removeChild(gun.children, &skull);
     parents.push_back(&gun);
-    parents.push_back(&knight);
+    parents.push_back(&level0);
 
     
     // --- init lights --- //
-
-    Light light = Light{glm::vec3{0.0f, 0.0f, 1.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 1.0f};
+    // pos, color, intensity, radius
+    Light light = Light{glm::vec3{0.0f, 5.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 0.5f, 500.0f};
 
     lights.push_back(&light);
 
@@ -87,7 +83,7 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        float speed = 2.5f * deltaTime; // deltaTime keeps speed steady regardless of FPS
+        float speed = 7.5f * deltaTime; // deltaTime keeps speed steady regardless of FPS
         
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
