@@ -22,6 +22,7 @@
 
 const float PI = 3.14159265358979323;
 const int VERTEX_FLOATS = 19;
+const float SAMPLE = 1.0f;
 const int MAX_BONES = 100;
 
 // Vertical field of view of the camera, in degrees.
@@ -98,9 +99,54 @@ struct Light
 };
 
 
+// A world-space triangle that can block light during the bake. Defined only in
+// graphics.cpp — it appears here so the bake walk can be declared on the scene
+// node, and an incomplete type is fine behind a reference.
+struct Tri;
+
+
+// A node in the scene graph: a transform, its composed world matrix, and its
+// children. Carries no geometry — a bare Object is a pivot / attachment point /
+// group, and its transform still composes into everything beneath it. Geometry
+// lives in Mesh, which derives from this.
+//
+// Every walk over the graph is a virtual pair: the base does the recursion and
+// nothing else, Mesh overrides it to do the per-mesh work and then chains to the
+// base. That way a mesh-less node is never a special case at the call site.
 struct Object
 {
     Transform transform;
+
+    // World-space transform matrix, recomputed each frame by Draw(). Keeping it
+    // as a matrix (rather than decomposing back to yaw/pitch) avoids gimbal lock
+    // and preserves any roll produced by composing rotated parents and children.
+    glm::mat4 world = glm::mat4(1.0f);
+    std::vector<Object*> children = {};
+
+
+    Object() = default;
+
+    Object(const Transform& t)
+        : transform(t) {}
+
+    virtual void Upload();
+
+    virtual void Draw();
+
+    // The two bake passes. Both take parentWorld explicitly rather than reading
+    // `world`: the bake runs before the first Draw(), so `world` is only valid on
+    // roots and every child's is still identity. See bakeSceneLighting().
+    virtual void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out);
+    virtual void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders);
+
+    // Virtual so deleting a Mesh through an Object* still frees its GL handles.
+    virtual ~Object() = default;
+};
+
+// A scene node that also has geometry: the CPU mesh, its GL handles, and (for
+// skinned FBX) a skeleton plus its baked clips.
+struct Mesh : Object
+{
     std::vector<float> vertices;
     std::vector<unsigned int> indices;
     unsigned int VAO = 0, VBO = 0, EBO = 0;
@@ -109,28 +155,26 @@ struct Object
 
     bool isStatic = false;
 
-    // World-space transform matrix, recomputed each frame by Draw(). Keeping it
-    // as a matrix (rather than decomposing back to yaw/pitch) avoids gimbal lock
-    // and preserves any roll produced by composing rotated parents and children.
-    glm::mat4 world = glm::mat4(1.0f);
-    std::vector<Object*> children = {};
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
     int currentAnim = 0;   // index into `animations` of the clip currently playing
     float animTime = 0.0f; // seconds into the current clip added to each frame
 
-    Object() = default;
+    Mesh() = default;
 
-    void Upload();
+    void Upload() override;
 
-    void Draw();
+    void Draw() override;
+
+    void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
+    void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders) override;
 
     // Select which baked clip plays. Both reset animTime so the new clip starts
     // from its first frame. The string form returns false if no clip matches.
     void SetAnimation(int index);
     bool SetAnimation(const std::string& name);
 
-    ~Object();
+    ~Mesh() override;
 };
 
 extern int SW;
@@ -154,6 +198,15 @@ extern const char* fragmentShaderSrc;
 
 extern std::vector<Object*> parents;
 extern std::vector<Light*> lights;
+extern std::vector<Tri> occluders;
+extern std::vector<glm::vec3> lightGrid;
+
+extern float minX;
+extern float maxX;
+extern float minY;
+extern float maxY;
+extern float minZ;
+extern float maxZ;
 
 extern GLFWwindow* window;
 
@@ -182,12 +235,12 @@ bool loadFBX(const char* path,
              Skeleton& outSkel,
              std::vector<Animation>& outAnims);
 
-Object makeObj(const char* objPath, const char* texPath,
-               Transform Transform, bool isStatic);
+Mesh makeObj(const char* objPath, const char* texPath,
+             Transform Transform, bool isStatic);
 
 // for animated objects
-Object makeFbx(const char* objPath, const char* texPath,
-               Transform Transform);
+Mesh makeFbx(const char* objPath, const char* texPath,
+             Transform Transform);
 
 // Sample all lights at one world-space point, for lighting a whole mover at once.
 glm::vec3 sampleLightAt(const glm::vec3& p);
@@ -197,12 +250,12 @@ glm::vec3 sampleLightAt(const glm::vec3& p);
 // are placed, before Upload(). Static objects must not move after baking.
 void bakeSceneLighting();
 
-void uploadObject(Object &obj);
+void uploadObject(Mesh &obj);
 
 void buildShaderProgram();
 
 int initWindow();
 
-void drawObj(Object& obj);
+void drawObj(Mesh& obj);
 
 void clearBG(float r, float g, float b, float a);

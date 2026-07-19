@@ -33,6 +33,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             firstMouse = true;
         }
     }
+    else if (key == GLFW_KEY_H && action == GLFW_PRESS) {
+        std::cout << cameraPos.x << ' ' << cameraPos.y << ' ' << cameraPos.z << '\n';
+    }
 }
 
 
@@ -55,20 +58,24 @@ int main()
 
     // --- init objects --- //
     // 3d obj src, tex src, transform, static boolean
-    Object gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
-                         Transform{0, 0, 0,  0, 0, 5.0f}, true);
+    Mesh gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
+                       Transform{7, 0, 0,  0, 0, 5.0f}, false);
 
-    Object level0 = makeObj("assets/level0/level0.obj", "assets/level0/level0.jpg",
-                            Transform{0, 0, 0,  0, 0, 1.0f}, true);
+    Mesh level0 = makeObj("assets/level0/level0.obj", "assets/level0/level0.jpg",
+                          Transform{0, 0, 0,  0, 0, 1.0f}, true);
+
+    Object node = Object{Transform{0, 0, 0,  0, 0, 1.0f}};
 
     // removeChild(gun.children, &skull);
-    parents.push_back(&gun);
     parents.push_back(&level0);
+
+    level0.children.push_back(&node);
+    node.children.push_back(&gun);
 
     
     // --- init lights --- //
     // pos, color, intensity, radius
-    Light light = Light{glm::vec3{0.0f, 5.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 0.5f, 500.0f};
+    Light light = Light{glm::vec3{0.0f, 5.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 5.0f, 500.0f};
 
     lights.push_back(&light);
 
@@ -96,6 +103,8 @@ int main()
             obj->world = obj->transform.matrix();
             obj->Draw();
         }
+
+        node.transform.z += 0.01;
 
         if (editing)
         {

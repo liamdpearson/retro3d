@@ -32,6 +32,16 @@ int lightModeLoc, objectLightLoc;
 
 float lightAmbient = 0.2f;
 
+std::vector<Tri> occluders;
+std::vector<glm::vec3> lightGrid;
+
+float minX = INFINITY;
+float maxX = -INFINITY;
+float minY = INFINITY;
+float maxY = -INFINITY;
+float minZ = INFINITY;
+float maxZ = -INFINITY;
+
 // Runs once per vertex. Its only job: set gl_Position, the vertex's final
 // position in "clip space". For now we pass our coordinates straight through.
 // `layout (location = 0)` ties aPos to attribute slot 0 (we configure slot 0 below).
@@ -476,10 +486,10 @@ bool loadFBX(const char* path,
 }   
 
 
-Object makeObj(const char* objPath, const char* texPath,
-               Transform transform, bool isStatic)
+Mesh makeObj(const char* objPath, const char* texPath,
+             Transform transform, bool isStatic)
 {
-    Object obj;
+    Mesh obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
     obj.isStatic = isStatic;
     obj.transform = transform;
@@ -488,28 +498,6 @@ Object makeObj(const char* objPath, const char* texPath,
     obj.indexCount = (GLsizei)obj.indices.size();
     
     return obj;
-}
-
-
-// Sample every light at a single world-space point. Deliberately has no normal
-// term: the caller applies one value to a whole mesh, so there is no surface to
-// take a lambert against. Brightness therefore falls off with distance alone.
-// Keep the attenuation curve identical to bakeObjectLighting()'s, or movers and
-// the baked floor beneath them will disagree about how bright the room is.
-glm::vec3 sampleLightAt(const glm::vec3& p)
-{
-    glm::vec3 lit(lightAmbient);
-
-    for (const Light* light : lights)
-    {
-        glm::vec3 toLight = light->pos - p;
-        float dist = glm::length(toLight);
-
-        float atten = light->intensity / (1.0f + (dist * dist / light->radius));
-        lit += light->color * atten;
-    }
-
-    return glm::min(lit, glm::vec3(1.0f));
 }
 
 
@@ -550,54 +538,98 @@ static bool rayOccluded(const glm::vec3& origin, const glm::vec3& dir,
 }
 
 
-// Flatten every static triangle in the scene into world space. Occlusion is a
-// scene-wide property, so this must run over the whole graph before any vertex
-// is baked. Dynamic objects are deliberately skipped: they move, and a shadow
-// baked from them would not.
-static void collectOccluders(Object& obj, const glm::mat4& parentWorld,
-                             std::vector<Tri>& out)
+// Sample every light at a single world-space point. Deliberately has no normal
+// term: the caller applies one value to a whole mesh, so there is no surface to
+// take a lambert against. Brightness therefore falls off with distance alone.
+// Keep the attenuation curve identical to bakeObjectLighting()'s, or movers and
+// the baked floor beneath them will disagree about how bright the room is.
+glm::vec3 sampleLightAt(const glm::vec3& p)
 {
-    glm::mat4 world = parentWorld * obj.transform.matrix();
+    glm::vec3 lit(lightAmbient);
 
-    if (obj.isStatic)
+    for (const Light* light : lights)
     {
-        for (size_t i = 0; i + 2 < obj.indices.size(); i += 3)
+        glm::vec3 toLight = light->pos - p;
+        float dist = glm::length(toLight);
+        glm::vec3 l = toLight / dist;
+        
+        if (rayOccluded(p, l, dist, occluders)) continue;
+
+        float atten = light->intensity / (1.0f + (dist * dist / light->radius));
+        lit += light->color * atten;
+    }
+
+    return glm::min(lit, glm::vec3(1.0f));
+}
+
+
+// Pass 1, recursion half. A mesh-less node contributes no triangles; it still
+// composes its transform into the world matrix its children are gathered with,
+// so a pivot above static geometry moves that geometry's shadows with it.
+void Object::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
+{
+    glm::mat4 world = parentWorld * transform.matrix();
+    for (Object* child : children) child->CollectOccluders(world, out);
+}
+
+
+// Pass 1, geometry half. Flatten every static triangle in the scene into world
+// space. Occlusion is a scene-wide property, so this must run over the whole
+// graph before any vertex is baked. Dynamic objects are deliberately skipped:
+// they move, and a shadow baked from them would not.
+void Mesh::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
+{
+    glm::mat4 world = parentWorld * transform.matrix();
+
+    if (isStatic)
+    {
+        for (size_t i = 0; i + 2 < indices.size(); i += 3)
         {
             Tri t;
             glm::vec3* corner[3] = { &t.a, &t.b, &t.c };
             for (int c = 0; c < 3; c++)
             {
-                size_t v = (size_t)obj.indices[i + c] * VERTEX_FLOATS;
-                glm::vec3 local(obj.vertices[v + 0], obj.vertices[v + 1], obj.vertices[v + 2]);
+                size_t v = (size_t)indices[i + c] * VERTEX_FLOATS;
+                glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
                 *corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
             }
             out.push_back(t);
         }
     }
 
-    for (Object* child : obj.children) collectOccluders(*child, world, out);
+    // Chain with parentWorld, NOT the composed world above: the base recomposes
+    // this node's transform itself. Passing `world` here would apply this mesh's
+    // transform twice to every descendant — silent, and geometrically plausible.
+    Object::CollectOccluders(parentWorld, out);
 }
 
 
-// Bake per-vertex irradiance into the last 3 floats of every static vertex.
-// parentWorld mirrors the composition Draw() does, so static children of a
-// static parent bake in their true world position.
-static void bakeObjectLighting(Object& obj, const glm::mat4& parentWorld,
-                               const std::vector<Tri>& occluders)
+// Pass 2, recursion half. See CollectOccluders() above for why this composes.
+void Object::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
 {
-    glm::mat4 world = parentWorld * obj.transform.matrix();
+    glm::mat4 world = parentWorld * transform.matrix();
+    for (Object* child : children) child->BakeLighting(world, occluders);
+}
 
-    if (obj.isStatic)
+
+// Pass 2, geometry half. Bake per-vertex irradiance into the last 3 floats of
+// every static vertex. parentWorld mirrors the composition Draw() does, so
+// static children of a static parent bake in their true world position.
+void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
+{
+    glm::mat4 world = parentWorld * transform.matrix();
+
+    if (isStatic)
     {
         // Inverse-transpose so normals survive any non-uniform scale baked into
         // the geometry by loadFBX. Transform only ever applies uniform scale, but
         // this costs nothing here and is correct either way.
         glm::mat3 normalMat = glm::transpose(glm::inverse(glm::mat3(world)));
 
-        for (size_t v = 0; v + VERTEX_FLOATS <= obj.vertices.size(); v += VERTEX_FLOATS)
+        for (size_t v = 0; v + VERTEX_FLOATS <= vertices.size(); v += VERTEX_FLOATS)
         {
-            glm::vec3 localPos(obj.vertices[v + 0], obj.vertices[v + 1], obj.vertices[v + 2]);
-            glm::vec3 localNrm(obj.vertices[v + 5], obj.vertices[v + 6], obj.vertices[v + 7]);
+            glm::vec3 localPos(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
+            glm::vec3 localNrm(vertices[v + 5], vertices[v + 6], vertices[v + 7]);
 
             glm::vec3 worldPos = glm::vec3(world * glm::vec4(localPos, 1.0f));
             glm::vec3 n = glm::normalize(normalMat * localNrm);
@@ -627,16 +659,17 @@ static void bakeObjectLighting(Object& obj, const glm::mat4& parentWorld,
                 lit += light->color * lambert * atten;
             }
 
-            obj.vertices[v + 16] = glm::min(lit.r, 1.0f);
-            obj.vertices[v + 17] = glm::min(lit.g, 1.0f);
-            obj.vertices[v + 18] = glm::min(lit.b, 1.0f);
+            vertices[v + 16] = glm::min(lit.r, 1.0f);
+            vertices[v + 17] = glm::min(lit.g, 1.0f);
+            vertices[v + 18] = glm::min(lit.b, 1.0f);
         }
 
         std::fprintf(stderr, "  baked %zu verts against %zu lights\n",
-                     obj.vertices.size() / VERTEX_FLOATS, lights.size());
+                     vertices.size() / VERTEX_FLOATS, lights.size());
     }
 
-    for (Object* child : obj.children) bakeObjectLighting(*child, world, occluders);
+    // parentWorld, not world — see the note in Mesh::CollectOccluders().
+    Object::BakeLighting(parentWorld, occluders);
 }
 
 
@@ -647,22 +680,57 @@ void bakeSceneLighting()
 {
     double start = glfwGetTime();
 
-    std::vector<Tri> occluders;
-    for (Object* obj : parents) collectOccluders(*obj, glm::mat4(1.0f), occluders);
+    for (Object* obj : parents) obj->CollectOccluders(glm::mat4(1.0f), occluders);
 
     std::fprintf(stderr, "bake: %zu occluder tris\n", occluders.size());
 
-    for (Object* obj : parents) bakeObjectLighting(*obj, glm::mat4(1.0f), occluders);
+    for (Object* obj : parents) obj->BakeLighting(glm::mat4(1.0f), occluders);
 
+    // create light grid for dynamic objects
+    for (Tri tri : occluders)
+    {
+        std::vector<glm::vec3> vertices{tri.a, tri.b, tri.c};
+        for (glm::vec3& v : vertices)
+        {
+            if (v.x < minX) minX = v.x;
+            if (v.y < minY) minY = v.y;
+            if (v.z < minZ) minZ = v.z;
+
+            if (v.x > maxX) maxX = v.x;
+            if (v.y > maxY) maxY = v.y;
+            if (v.z > maxZ) maxZ = v.z;
+        }
+    }
+
+    std::cout << minX << ' ' << maxX << ' ' << minY << ' ' << maxY << ' ' << minZ << ' ' << maxZ << '\n';
+
+    minX = floor(minX) - 1; minY = floor(minY) - 1; minZ = floor(minZ) - 1;
+    maxX = floor(maxX) + 2; maxY = floor(maxY) + 2; maxZ = floor(maxZ) + 2;
+
+    std::cout << minX << ' ' << maxX << ' ' << minY << ' ' << maxY << ' ' << minZ << ' ' << maxZ << '\n';
+
+
+    for (int x = minX; x < maxX + 1; x++)
+    {
+        for (int y = minY; y < maxY + 1; y++)
+        {
+            for (int z = minZ; z < maxZ + 1; z++)
+            {
+                glm::vec3 lit = sampleLightAt(glm::vec3{x, y, z});
+                lightGrid.push_back(lit);
+            }
+        }
+    }
+    
     std::fprintf(stderr, "bake: done in %.2fs\n", glfwGetTime() - start);
 }
 
 
 // for animated objects so always dynamic
-Object makeFbx(const char* objPath, const char* texPath,
-               Transform transform)
+Mesh makeFbx(const char* objPath, const char* texPath,
+             Transform transform)
 {
-    Object obj;
+    Mesh obj;
     loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
     obj.transform = transform;
     obj.world = transform.matrix();
@@ -673,7 +741,7 @@ Object makeFbx(const char* objPath, const char* texPath,
 }
 
 
-void uploadObject(Object &obj)
+void uploadObject(Mesh &obj)
 {
     glGenVertexArrays(1, &obj.VAO);
     glGenBuffers(1, &obj.VBO);
@@ -791,7 +859,7 @@ int initWindow()
 
 // Sample obj's baked clip at obj.animTime and fill `palette` with each bone's
 // skinning matrix Aⱼ·Bⱼ⁻¹. No skeleton/clip -> identity palette (bind pose).
-static void computePose(const Object& obj, std::vector<glm::mat4>& palette)
+static void computePose(const Mesh& obj, std::vector<glm::mat4>& palette)
 {
     const Skeleton&  sk = obj.skeleton;
     int n = (int)sk.inverseBind.size();
@@ -846,7 +914,57 @@ static void computePose(const Object& obj, std::vector<glm::mat4>& palette)
 }
 
 
-void drawObj(Object& obj)
+// Sample the baked light grid at an arbitrary world point, trilinearly blending
+// the eight cells around it so a mover crossing a cell boundary fades instead of
+// popping.
+//
+// bakeSceneLighting() fills the grid at 1-unit spacing with x as the outer loop
+// and z as the inner one, so a cell sits at (gx * ny + gy) * nz + gz — the
+// multiplier for an axis is the size of everything nested inside it, not that
+// axis's own extent. Indices are grid-relative: cell 0 is at (minX, minY, minZ),
+// which is negative in world space for most scenes.
+//
+// Points outside the baked bounds clamp to the edge cell.
+static glm::vec3 gridLightAt(const glm::vec3& p)
+{
+    // No bake (or a bake that found no occluders to size the grid from) — stay
+    // fullbright rather than reading off the end of an empty vector.
+    if (lightGrid.empty()) return glm::vec3(1.0f);
+
+    const int nx = (int)(maxX - minX) + 1;
+    const int ny = (int)(maxY - minY) + 1;
+    const int nz = (int)(maxZ - minZ) + 1;
+
+    // Clamp in grid space, before splitting into index and fraction, so an
+    // out-of-bounds point gets weights that agree with its clamped indices.
+    float fx = std::clamp(p.x - minX, 0.0f, (float)(nx - 1));
+    float fy = std::clamp(p.y - minY, 0.0f, (float)(ny - 1));
+    float fz = std::clamp(p.z - minZ, 0.0f, (float)(nz - 1));
+
+    int x0 = (int)std::floor(fx), x1 = std::min(x0 + 1, nx - 1);
+    int y0 = (int)std::floor(fy), y1 = std::min(y0 + 1, ny - 1);
+    int z0 = (int)std::floor(fz), z1 = std::min(z0 + 1, nz - 1);
+
+    float tx = fx - x0, ty = fy - y0, tz = fz - z0;
+
+    auto cell = [&](int gx, int gy, int gz) -> const glm::vec3& {
+        return lightGrid[(gx * ny + gy) * nz + gz];
+    };
+
+    // Collapse z, then y, then x.
+    glm::vec3 c00 = glm::mix(cell(x0, y0, z0), cell(x0, y0, z1), tz);
+    glm::vec3 c01 = glm::mix(cell(x0, y1, z0), cell(x0, y1, z1), tz);
+    glm::vec3 c10 = glm::mix(cell(x1, y0, z0), cell(x1, y0, z1), tz);
+    glm::vec3 c11 = glm::mix(cell(x1, y1, z0), cell(x1, y1, z1), tz);
+
+    glm::vec3 c0 = glm::mix(c00, c01, ty);
+    glm::vec3 c1 = glm::mix(c10, c11, ty);
+
+    return glm::mix(c0, c1, tx);
+}
+
+
+void drawObj(Mesh& obj)
 {
     glm::mat4 model;
     // The world matrix already encodes translation, rotation, and scale.
@@ -863,7 +981,9 @@ void drawObj(Object& obj)
     }
     else
     {
-        glm::vec3 lit = sampleLightAt(glm::vec3(obj.world[3]));
+        glm::vec3 origin(obj.world[3][0], obj.world[3][1], obj.world[3][2]);
+        glm::vec3 lit = gridLightAt(origin);
+
         glUniform3fv(objectLightLoc, 1, glm::value_ptr(lit));
         glUniform1i(lightModeLoc, 1);
     }
@@ -924,20 +1044,26 @@ void clearBG(float r, float g, float b, float a)
     glActiveTexture(GL_TEXTURE0);
 }
 
+// A mesh-less node has nothing of its own to upload; it just carries the walk.
 void Object::Upload()
 {
-    uploadObject(*this);
     for (Object* child : children) child->Upload();
 }
 
-void Object::SetAnimation(int index)
+void Mesh::Upload()
+{
+    uploadObject(*this);
+    Object::Upload();
+}
+
+void Mesh::SetAnimation(int index)
 {
     if (index < 0 || index >= (int)animations.size()) return;
     currentAnim = index;
     animTime = 0.0f;   // restart the new clip from its first frame
 }
 
-bool Object::SetAnimation(const std::string& name)
+bool Mesh::SetAnimation(const std::string& name)
 {
     for (int i = 0; i < (int)animations.size(); i++)
     {
@@ -950,9 +1076,11 @@ bool Object::SetAnimation(const std::string& name)
     return false;
 }
 
+// Composition only. `world` is set by the caller for roots (see main's loop) and
+// by the parent for children, so a mesh-less pivot still folds its transform
+// into everything beneath it — that's what makes attachment points work.
 void Object::Draw()
 {
-    drawObj(*this);
     for (Object* child : this->children)
     {
         child->world = this->world * child->transform.matrix();
@@ -960,7 +1088,13 @@ void Object::Draw()
     }
 }
 
-Object::~Object()
+void Mesh::Draw()
+{
+    drawObj(*this);
+    Object::Draw();
+}
+
+Mesh::~Mesh()
 {
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
