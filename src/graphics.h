@@ -25,9 +25,6 @@ const int VERTEX_FLOATS = 19;
 const float SAMPLE = 1.0f;
 const int MAX_BONES = 100;
 
-// Vertical field of view of the camera, in degrees.
-const float FOV = 90.0f;
-
 // How far to lift a shadow ray off the surface it starts on. Too small and
 // surfaces self-shadow into speckle; too large and contact shadows detach.
 // Tuned for a scene measured in metres — rescale if your units change.
@@ -35,12 +32,14 @@ const float SHADOW_BIAS = 1e-3f;
 
 struct Transform
 {
-    float x;
-    float y;
-    float z;
-    float yaw;
-    float pitch;
-    float scale;
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    // Defaults to 1, never 0: a default-constructed node is an identity pivot.
+    // A zero here silently collapses every descendant to a point.
+    float scale = 1.0f;
 
     // Build the local-to-world matrix for a transform, matching the convention
     // used by drawObj(): translate, then yaw (Y), then pitch (-X), then scale.
@@ -177,14 +176,30 @@ struct Mesh : Object
     ~Mesh() override;
 };
 
+struct Camera : Object
+{
+    float FOV;
+
+    glm::vec3 pos;
+    glm::vec3 front;
+    glm::vec3 up;
+
+    Camera(const float FOV, const glm::vec3 pos,
+           glm::vec3 front, glm::vec3 up)
+        : FOV(FOV), pos(pos), front(front), up(up) {}
+
+    void Upload() override;
+
+    void Draw() override;
+
+    ~Camera() = default;
+};
+
 extern int SW;
 extern int SH;
 extern float vps;
 
-extern glm::vec3 cameraPos;
-extern glm::vec3 cameraFront;
-extern glm::vec3 cameraUp;
-
+extern Camera camera;
 extern float yaw;
 extern float pitch;
 extern float lastX, lastY;   // last mouse pos (start at screen center)

@@ -9,10 +9,6 @@ int SW = 0;   // overwritten from the monitor's video mode in main()
 int SH = 0;
 float vps = 1.0f; // viewport scale
 
-glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f, 3.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
-glm::vec3 cameraUp    = glm::vec3(0.0f, 1.0f, 0.0f);
-
 float yaw   = -90.0f;   // degrees. -90 so we start looking down -Z, not +X
 float pitch = 0.0f;
 float lastX, lastY;   // last mouse pos (start at screen center)
@@ -175,17 +171,11 @@ void mouseCallback(GLFWwindow*, double xpos, double ypos)
     lastX = float(xpos);
     lastY = float(ypos);
 
-    yaw += xoffset * sensitivity;
-    pitch += yoffset * sensitivity;
+    camera.transform.yaw -= xoffset * sensitivity;
+    camera.transform.pitch -= yoffset * sensitivity;
 
-    if (pitch > 89.0f) pitch = 89.0f;
-    if (pitch < -89.0f) pitch = -89.0f;
-
-    glm::vec3 front;
-    front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-    front.y = sin(glm::radians(pitch));
-    front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-    cameraFront = glm::normalize(front);
+    if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
+    if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
 }
 
 
@@ -1026,14 +1016,14 @@ void clearBG(float r, float g, float b, float a)
     glfwGetFramebufferSize(window, &fbw, &fbh);
         
     glm::mat4 projection = glm::perspective(
-        glm::radians(FOV),                   // vertical field of view
+        glm::radians(camera.FOV),            // vertical field of view
         (float)fbw / (float)fbh,             // aspect ratio
         0.1f, 100.0f);                       // near & far clip planes
     
     glm::mat4 view = glm::lookAt(
-        cameraPos,         // camera position (Step 5 fills these in)
-        cameraPos + cameraFront,         // look at the origin (where the triangle is)
-        cameraUp);        // "up" direction
+        camera.pos,         // camera position (Step 5 fills these in)
+        camera.pos + camera.front,         // look at the origin (where the triangle is)
+        camera.up);        // "up" direction
 
     glm::mat4 model = glm::mat4(1.0f);       // identity: triangle stays at the origin
 
@@ -1053,6 +1043,11 @@ void Object::Upload()
 void Mesh::Upload()
 {
     uploadObject(*this);
+    Object::Upload();
+}
+
+void Camera::Upload()
+{
     Object::Upload();
 }
 
@@ -1091,6 +1086,25 @@ void Object::Draw()
 void Mesh::Draw()
 {
     drawObj(*this);
+    Object::Draw();
+}
+
+void Camera::Draw()
+{
+    // Read the camera's orientation straight out of the composed world matrix
+    // rather than rebuilding it from yaw/pitch. `world` already carries every
+    // parent's rotation, so a camera parented to a mover inherits its motion —
+    // including roll, which a yaw/pitch pair can't represent.
+    //
+    // Local axes follow the GL convention: forward is -Z, up is +Y. Directions
+    // go through mat3 to drop the translation, and are normalized because a
+    // scaled parent (or the node's own transform.scale) leaks into the basis.
+    glm::mat3 basis(world);
+
+    pos   = glm::vec3(world[3]);
+    front = glm::normalize(basis * glm::vec3(0.0f, 0.0f, -1.0f));
+    up    = glm::normalize(basis * glm::vec3(0.0f, 1.0f,  0.0f));
+
     Object::Draw();
 }
 

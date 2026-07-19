@@ -1,10 +1,7 @@
 #include "graphics.h"
 
-glm::vec3 gameCamPos   = glm::vec3(0.0f, 0.0f, 3.0f);
-glm::vec3 gameCamFront = glm::vec3(0.0f, 0.0f, -1.0f);
-
-glm::vec3 editCamPos   = glm::vec3(0.0f, 0.0f, 3.0f);
-glm::vec3 editCamFront = glm::vec3(0.0f, 0.0f, -1.0f);
+Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 3.0f),
+              glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
 
 std::vector<Object*> parents;
 std::vector<Light*> lights;
@@ -17,24 +14,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     if (key == GLFW_KEY_P && action == GLFW_PRESS) {
         paused = !paused;
     }
-    else if (key == GLFW_KEY_E && action == GLFW_PRESS) {
-        editing = !editing;
-        if (!editing)
-        {
-            editCamPos = cameraPos;
-            editCamFront = cameraFront;
-
-            cameraPos = gameCamPos;
-            cameraFront = gameCamFront;
-            firstMouse = true;
-        } else {
-            cameraPos = editCamPos;
-            cameraFront = editCamFront;
-            firstMouse = true;
-        }
-    }
     else if (key == GLFW_KEY_H && action == GLFW_PRESS) {
-        std::cout << cameraPos.x << ' ' << cameraPos.y << ' ' << cameraPos.z << '\n';
+        std::cout << camera.pos.x << ' ' << camera.pos.y << ' ' << camera.pos.z << '\n';
     }
 }
 
@@ -56,26 +37,26 @@ int main()
     buildShaderProgram();
     glfwSetKeyCallback(window, key_callback);
 
+    // --- init camera transform --- //
+    camera.transform.z += 0.1;
+
     // --- init objects --- //
     // 3d obj src, tex src, transform, static boolean
     Mesh gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
-                       Transform{7, 0, 0,  0, 0, 5.0f}, false);
+                       Transform{0, 0, -1,  0, 0, 1.0f}, false);
 
     Mesh level0 = makeObj("assets/level0/level0.obj", "assets/level0/level0.jpg",
                           Transform{0, 0, 0,  0, 0, 1.0f}, true);
 
-    Object node = Object{Transform{0, 0, 0,  0, 0, 1.0f}};
-
     // removeChild(gun.children, &skull);
     parents.push_back(&level0);
-
-    level0.children.push_back(&node);
-    node.children.push_back(&gun);
+    parents.push_back(&camera);
+    camera.children.push_back(&gun);
 
     
     // --- init lights --- //
     // pos, color, intensity, radius
-    Light light = Light{glm::vec3{0.0f, 5.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 5.0f, 500.0f};
+    Light light = Light{glm::vec3{0.0f, 5.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 5.0f, 15.0f};
 
     lights.push_back(&light);
 
@@ -104,18 +85,16 @@ int main()
             obj->Draw();
         }
 
-        node.transform.z += 0.01;
-
         if (editing)
         {
-            if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) cameraPos += speed * cameraFront;
-            if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) cameraPos -= speed * cameraFront;
-            if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-                cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * speed;
-            if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-                cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * speed;
-            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)        cameraPos += speed * cameraUp;
-            if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)   cameraPos -= speed * cameraUp;
+            // if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.pos += speed * camera.front;
+            // if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.pos -= speed * camera.front;
+            // if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+            //     camera.pos -= glm::normalize(glm::cross(camera.front, camera.up)) * speed;
+            // if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+            //     camera.pos += glm::normalize(glm::cross(camera.front, camera.up)) * speed;
+            // if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)        camera.pos += speed * camera.up;
+            // if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)   camera.pos -= speed * camera.up;
         } else {
             // apply game movement here
             // apply camera filters here
