@@ -1071,25 +1071,24 @@ bool Mesh::SetAnimation(const std::string& name)
     return false;
 }
 
-// Composition only. `world` is set by the caller for roots (see main's loop) and
+// Composition pass. `world` is set by the caller for roots (see main's loop) and
 // by the parent for children, so a mesh-less pivot still folds its transform
 // into everything beneath it — that's what makes attachment points work.
-void Object::Draw()
+//
+// This is a separate walk from Draw() because the camera derives its pos/front
+// here, and clearBG() needs those to build `view` before the first mesh is
+// drawn. Fused into Draw(), the view matrix would always trail the scene it is
+// viewing by one frame.
+void Object::Compose()
 {
     for (Object* child : this->children)
     {
         child->world = this->world * child->transform.matrix();
-        child->Draw();
+        child->Compose();
     }
 }
 
-void Mesh::Draw()
-{
-    drawObj(*this);
-    Object::Draw();
-}
-
-void Camera::Draw()
+void Camera::Compose()
 {
     // Read the camera's orientation straight out of the composed world matrix
     // rather than rebuilding it from yaw/pitch. `world` already carries every
@@ -1105,6 +1104,19 @@ void Camera::Draw()
     front = glm::normalize(basis * glm::vec3(0.0f, 0.0f, -1.0f));
     up    = glm::normalize(basis * glm::vec3(0.0f, 1.0f,  0.0f));
 
+    Object::Compose();
+}
+
+// Draw only — every `world` in the graph is already up to date by the time this
+// runs. Recursion and nothing else on the base; Mesh overrides it to draw.
+void Object::Draw()
+{
+    for (Object* child : this->children) child->Draw();
+}
+
+void Mesh::Draw()
+{
+    drawObj(*this);
     Object::Draw();
 }
 

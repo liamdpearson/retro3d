@@ -5,24 +5,13 @@ Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 3.0f),
 
 std::vector<Object*> parents;
 std::vector<Light*> lights;
-bool paused = false;
-bool editing = true;
 
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_P && action == GLFW_PRESS) {
-        paused = !paused;
-    }
-    else if (key == GLFW_KEY_H && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
         std::cout << camera.pos.x << ' ' << camera.pos.y << ' ' << camera.pos.z << '\n';
     }
-}
-
-
-void update()
-{
-
 }
 
 void removeChild(std::vector<Object*>& children, const Object* child)
@@ -67,6 +56,11 @@ int main()
     // --- render loop --- //
     while (!glfwWindowShouldClose(window))
     {
+        // Polled at the top so this frame acts on this frame's input. Polling
+        // after the draw meant the input block below ran on key state gathered
+        // at the end of the previous iteration.
+        glfwPollEvents();
+
         float currentFrame = (float)glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
@@ -76,32 +70,42 @@ int main()
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
-        
-        clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
 
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            camera.transform.x -= speed * sin(glm::radians(camera.transform.yaw));
+            camera.transform.z -= speed * cos(glm::radians(camera.transform.yaw));
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            camera.transform.x += speed * sin(glm::radians(camera.transform.yaw));
+            camera.transform.z += speed * cos(glm::radians(camera.transform.yaw));
+        }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            camera.transform.x += speed * sin(glm::radians(camera.transform.yaw - 90));
+            camera.transform.z += speed * cos(glm::radians(camera.transform.yaw - 90));
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            camera.transform.x += speed * sin(glm::radians(camera.transform.yaw + 90));
+            camera.transform.z += speed * cos(glm::radians(camera.transform.yaw + 90));
+        }
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)        camera.transform.y += speed;
+        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)   camera.transform.y -= speed;
+
+        gun.transform.yaw += 0.1;
+
+        // Compose first: this refreshes every `world` in the graph and lets the
+        // camera derive its pos/front, which clearBG() reads to build `view`.
+        // Draw only after both, or the view matrix lags the scene by a frame.
         for (Object*& obj : parents)
         {
             obj->world = obj->transform.matrix();
-            obj->Draw();
+            obj->Compose();
         }
 
-        if (editing)
-        {
-            // if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.pos += speed * camera.front;
-            // if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.pos -= speed * camera.front;
-            // if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-            //     camera.pos -= glm::normalize(glm::cross(camera.front, camera.up)) * speed;
-            // if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-            //     camera.pos += glm::normalize(glm::cross(camera.front, camera.up)) * speed;
-            // if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)        camera.pos += speed * camera.up;
-            // if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)   camera.pos -= speed * camera.up;
-        } else {
-            // apply game movement here
-            // apply camera filters here
-            if (!paused) update();
-        }
+        clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
+
+        for (Object*& obj : parents) obj->Draw();
+
         glfwSwapBuffers(window);
-        glfwPollEvents();
     }
 
     glfwTerminate();

@@ -130,6 +130,11 @@ struct Object
 
     virtual void Upload();
 
+    // Refresh `world` down the graph. Kept separate from Draw() so the camera
+    // has derived its pos/front before clearBG() builds the view matrix — see
+    // Object::Compose(). Every frame must Compose() before it Draws().
+    virtual void Compose();
+
     virtual void Draw();
 
     // The two bake passes. Both take parentWorld explicitly rather than reading
@@ -190,7 +195,10 @@ struct Camera : Object
 
     void Upload() override;
 
-    void Draw() override;
+    // Derives pos/front/up from `world`. The camera must be reachable from
+    // `parents` for this to run at all — unparent it and the view silently
+    // freezes at whatever the constructor set.
+    void Compose() override;
 
     ~Camera() = default;
 };
