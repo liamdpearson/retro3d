@@ -7,7 +7,6 @@
 
 int SW = 0;   // overwritten from the monitor's video mode in main()
 int SH = 0;
-float vps = 1.0f; // viewport scale
 
 float yaw   = -90.0f;   // degrees. -90 so we start looking down -Z, not +X
 float pitch = 0.0f;
@@ -159,6 +158,19 @@ unsigned int loadTexture(const char* path)
     }
     stbi_image_free(data);
     return texture;
+}
+
+
+// Pixel size of a PNG/JPG as {width, height}, without decoding the image.
+// Returns {0, 0} if the file can't be read.
+std::vector<int> textureDimensions(const char* path)
+{
+    int tw = 0, th = 0, tch = 0;
+    if (!stbi_info(path, &tw, &th, &tch)) {
+        std::fprintf(stderr, "Failed to read texture dimensions: %s\n", path);
+        return std::vector<int>{0, 0};
+    }
+    return std::vector<int>{tw, th};
 }
 
 
@@ -491,6 +503,46 @@ Mesh makeObj(const char* objPath, const char* texPath,
 }
 
 
+// always dynamic because fbxs are for animations in my case
+Mesh makeFbx(const char* objPath, const char* texPath,
+             Transform transform)
+{
+    Mesh obj;
+    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    return obj;
+}
+
+
+UIElement makeUIElement(const char* texPath, float x, float y, float scale)
+{
+    UIElement ui;
+
+    std::vector<int> dimensions = textureDimensions(texPath);
+    int width = dimensions[0], height = dimensions[1];
+
+    ui.vertices = std::vector<float>{
+        x - width/2 * scale, y + height/2 * scale, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        x + width/2 * scale, y + height/2 * scale, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        x + width/2 * scale, y - height/2 * scale, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        x - width/2 * scale, y - height/2 * scale, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f
+    };
+    ui.indices = std::vector<unsigned int>{
+        0, 1, 2,
+        0, 2, 3
+    };
+
+    ui.x = x; ui.y = y; ui.scale = scale;
+    ui.texture = loadTexture(texPath);
+
+    return ui;
+}
+
+
 // A world-space triangle that can block light during the bake.
 struct Tri { glm::vec3 a, b, c; };
 
@@ -716,21 +768,6 @@ void bakeSceneLighting()
 }
 
 
-// for animated objects so always dynamic
-Mesh makeFbx(const char* objPath, const char* texPath,
-             Transform transform)
-{
-    Mesh obj;
-    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
-    obj.transform = transform;
-    obj.world = transform.matrix();
-    obj.texture = loadTexture(texPath);
-    obj.indexCount = (GLsizei)obj.indices.size();
-
-    return obj;
-}
-
-
 void uploadObject(Mesh &obj)
 {
     glGenVertexArrays(1, &obj.VAO);
@@ -749,6 +786,49 @@ void uploadObject(Mesh &obj)
     glBufferData(GL_ARRAY_BUFFER,
              obj.vertices.size() * sizeof(float),
              obj.vertices.data(), GL_STATIC_DRAW); // change GL_STATIC_DRAW to GL_DYNAMIC_DRAW if tri will warp in 3d space
+    
+    const GLsizei stride = VERTEX_FLOATS * sizeof(float);
+    // 0: pos
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+    glEnableVertexAttribArray(0);
+    // 1: uv
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    // 2: normal
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, (void*)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    // 3: bone indices (stored as floats, cast to int later)
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    // 4: bone weights
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(12 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    // 5: baked color
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, (void*)(16 * sizeof(float)));
+    glEnableVertexAttribArray(5);
+
+    glBindVertexArray(0); // stop recording (optional tidy-up)
+}
+
+
+void uploadUIElement(UIElement &ui)
+{
+    glGenVertexArrays(1, &ui.VAO);
+    glGenBuffers(1, &ui.VBO);
+    glGenBuffers(1, &ui.EBO);
+
+    glBindVertexArray(ui.VAO); // start recording into this VAO
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ui.EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+             ui.indices.size() * sizeof(unsigned int),
+             ui.indices.data(), GL_STATIC_DRAW);
+
+    // VBO: upload the vertex bytes to GPU memory.
+    glBindBuffer(GL_ARRAY_BUFFER, ui.VBO);
+    glBufferData(GL_ARRAY_BUFFER,
+             ui.vertices.size() * sizeof(float),
+             ui.vertices.data(), GL_STATIC_DRAW); // change GL_STATIC_DRAW to GL_DYNAMIC_DRAW if tri will warp in 3d space
     
     const GLsizei stride = VERTEX_FLOATS * sizeof(float);
     // 0: pos
@@ -995,22 +1075,23 @@ void drawObj(Mesh& obj)
     glDrawElements(GL_TRIANGLES, obj.indexCount, GL_UNSIGNED_INT, 0);
 }
 
+void drawUIElement(UIElement& ui)
+{
+    glUniform1i(lightModeLoc, 1);
+
+    glBindTexture(GL_TEXTURE_2D, ui.texture);
+    glBindVertexArray(ui.VAO);
+    glDrawElements(GL_TRIANGLES, ui.indexCount, GL_UNSIGNED_INT, 0);
+}
+
 
 void clearBG(float r, float g, float b, float a)
 {   
-    int vpW = std::round(SW * vps);
-    int vpH = std::round(SH * vps);
-
-    int vpX = (SW - vpW);
-    int vpY = (SH - vpH);
-
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(vpX, vpY, vpW, vpH);
     glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(shaderProgram);
-    glViewport(vpX, vpY, vpW, vpH);
+    glViewport(0, 0, SW, SH);
 
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
@@ -1032,6 +1113,55 @@ void clearBG(float r, float g, float b, float a)
     glUniformMatrix4fv(modelLoc,      1, GL_FALSE, glm::value_ptr(model));
 
     glActiveTexture(GL_TEXTURE0);
+}
+
+// Switches the shared shader over to 2D screen-space drawing. Call once after
+// the 3D Draw() pass; everything issued afterwards is UI until the next frame's
+// clearBG() puts the perspective/view matrices back.
+//
+// The ortho box is built with top > bottom on purpose, so quad positions are
+// plain pixel coordinates with the origin at the top-left corner of the screen
+// and +y running down — the convention every UI layout is easier to author in.
+// The extent is SW/SH rather than the framebuffer size so it matches the
+// viewport clearBG() set; the two are the same here because the window is
+// fullscreen at the monitor's video mode.
+void beginUI()
+{
+    glUseProgram(shaderProgram);
+
+    glm::mat4 projection = glm::ortho(
+        0.0f, (float)SW,     // left, right
+        (float)SH, 0.0f,     // bottom, top  (flipped: y grows downward)
+        -1.0f, 1.0f);        // near & far — z is just a sort key for UI
+
+    glm::mat4 view  = glm::mat4(1.0f);   // no camera: the screen *is* the space
+    glm::mat4 model = glm::mat4(1.0f);   // drawUI() overwrites this per element
+
+    glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(viewLoc,       1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(modelLoc,      1, GL_FALSE, glm::value_ptr(model));
+
+    // Fullbright: UI must not pick up the scene's baked light or the grid.
+    glUniform1i(lightModeLoc,  1);
+    glUniform3f(objectLightLoc, 1.0f, 1.0f, 1.0f);
+
+    // UI draws in submission order, back to front, and always over the scene.
+    glDisable(GL_DEPTH_TEST);
+
+    // Harmless until the fragment shader stops discarding on alpha, but this is
+    // the state soft-edged UI needs, so set it here rather than remembering to.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glActiveTexture(GL_TEXTURE0);
+}
+
+// Undoes beginUI()'s state so the next frame's 3D pass starts clean. The
+// matrices don't need restoring — clearBG() unconditionally reuploads all three.
+void endUI()
+{
+    glDisable(GL_BLEND);
+    glEnable(GL_DEPTH_TEST);
 }
 
 // A mesh-less node has nothing of its own to upload; it just carries the walk.

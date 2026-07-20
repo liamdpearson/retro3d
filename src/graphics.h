@@ -147,6 +147,7 @@ struct Object
     virtual ~Object() = default;
 };
 
+
 // A scene node that also has geometry: the CPU mesh, its GL handles, and (for
 // skinned FBX) a skeleton plus its baked clips.
 struct Mesh : Object
@@ -181,6 +182,7 @@ struct Mesh : Object
     ~Mesh() override;
 };
 
+
 struct Camera : Object
 {
     float FOV;
@@ -203,9 +205,22 @@ struct Camera : Object
     ~Camera() = default;
 };
 
+
+struct UIElement
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float scale = 1.0f;
+
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+    unsigned int VAO = 0, VBO = 0, EBO = 0;
+    unsigned int texture = 0;
+    GLsizei indexCount = 6;
+};
+
 extern int SW;
 extern int SH;
-extern float vps;
 
 extern Camera camera;
 extern float yaw;
@@ -221,6 +236,7 @@ extern const char* fragmentShaderSrc;
 
 extern std::vector<Object*> parents;
 extern std::vector<Light*> lights;
+extern std::vector<UIElement*> uiElements;
 extern std::vector<Tri> occluders;
 extern std::vector<glm::vec3> lightGrid;
 
@@ -245,6 +261,8 @@ unsigned int compileShader(GLenum type, const char* src);
 void framebufferSizeCallback(GLFWwindow*, int width, int height);
 
 unsigned int loadTexture(const char* path);
+
+std::vector<int> textureDimensions(const char* path);
 
 void mouseCallback(GLFWwindow*, double xpos, double ypos);
 
@@ -282,3 +300,11 @@ int initWindow();
 void drawObj(Mesh& obj);
 
 void clearBG(float r, float g, float b, float a);
+
+// Bracket the screen-space UI pass; see graphics.cpp for the coordinate space.
+void beginUI();
+void endUI();
+
+void uploadUIElement(UIElement &ui);
+void drawUIElement(UIElement& ui);
+UIElement makeUIElement(const char* texPath, float x, float y, float scale);
