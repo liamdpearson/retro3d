@@ -8,9 +8,12 @@
 #include <glm/gtc/type_ptr.hpp>         // value_ptr (hand a matrix to OpenGL)
 #include <glm/gtc/quaternion.hpp>       // quat slerp, mat4_cast
 
+#include <nlohmann/json.hpp>            // json parser
+
 #include <cstdio>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <fstream>
 #include <sstream>
 #include <map>
@@ -114,13 +117,15 @@ struct Tri;
 // base. That way a mesh-less node is never a special case at the call site.
 struct Object
 {
-    Transform transform;
+    std::string name;
+
+    Transform transform; // local transform
 
     // World-space transform matrix, recomputed each frame by Draw(). Keeping it
     // as a matrix (rather than decomposing back to yaw/pitch) avoids gimbal lock
     // and preserves any roll produced by composing rotated parents and children.
     glm::mat4 world = glm::mat4(1.0f);
-    std::vector<Object*> children = {};
+    std::unordered_map<std::string, Object*> children = {};
 
 
     Object() = default;
@@ -208,8 +213,12 @@ struct Camera : Object
 
 struct UIElement
 {
+    std::string name;
+
     float x = 0.0f;
     float y = 0.0f;
+    unsigned int width = 1.0f;
+    unsigned int height = 1.0f;
     float scale = 1.0f;
 
     std::vector<float> vertices;
@@ -234,7 +243,7 @@ extern float deltaTime, lastFrame;
 extern const char* vertexShaderSrc;
 extern const char* fragmentShaderSrc;
 
-extern std::vector<Object*> parents;
+extern std::unordered_map<std::string, Object*> parents;
 extern std::vector<Light*> lights;
 extern std::vector<UIElement*> uiElements;
 extern std::vector<Tri> occluders;

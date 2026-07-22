@@ -4,7 +4,7 @@
 #                     mingw32-make clean  (remove the exe)
 #
 # We compile two translation units together:
-#   src/main.cpp                 — your program
+#   src/game.cpp                 — your program
 #   third_party/glad/src/glad.c  — the generated GL function loader
 # and link against GLFW + the Windows OpenGL/GDI system libs.
 
@@ -18,8 +18,8 @@ LDFLAGS  := -Lthird_party/glfw/lib
 # Link order matters with static libs: glfw3 first, then the system libs it needs.
 LDLIBS   := -lglfw3 -lopengl32 -lgdi32
 
-SRCS := src/main.cpp src/graphics.cpp third_party/glad/src/glad.c third_party/ufbx/ufbx.c
-TARGET := main.exe
+SRCS := src/game.cpp src/graphics.cpp third_party/glad/src/glad.c third_party/ufbx/ufbx.c
+TARGET := game.exe
 
 $(TARGET): $(SRCS)
 	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS) $(LDLIBS)

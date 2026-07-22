@@ -28,28 +28,30 @@ int main()
     glfwSetKeyCallback(window, key_callback);
 
     // --- init camera transform --- //
-    camera.transform.z += 0.1;
+
 
     // --- init objects --- //
     // 3d obj src, tex src, transform(x, y, z, yaw, pitch, scale), static boolean
     Mesh gun = makeObj("assets/gun/gun.obj", "assets/gun/gun.png",
-                       Transform{0.2f, -0.3f, -0.3f,  -90.0f, 0.0f, 1.0f}, false);
+                       Transform{3.0f, 0.0f, 0.0f,  -90.0f, 0.0f, 5.0f}, true);
 
     Mesh level0 = makeObj("assets/level0/level0.obj", "assets/level0/level0.jpg",
                           Transform{0.0f, 0.0f, 0.0f,  0.0f, 0.0f, 1.0f}, true);
 
     // removeChild(gun.children, &skull);
     parents.push_back(&level0);
+    parents.push_back(&gun);
     parents.push_back(&camera);
-    camera.children.push_back(&gun);
 
     
     // --- init lights --- //
-    // pos, color, intensity, radius
-    Light light = Light{glm::vec3{0.0f, 5.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 5.0f, 15.0f};
+    // pos, color, intensity, radius(Note: keep intensity at or below 10.0f
+    // otherwise the limits of vertex lighting with become very apparent)
+    Light light = Light{glm::vec3{0.0f, 0.0f, 0.0f}, glm::vec3{1.0f, 1.0f, 1.0f}, 10.0f, 15.0f};
 
     lights.push_back(&light);
 
+    
     // --- init ui elements --- //
     // src, x, y, scale
     UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
@@ -57,7 +59,6 @@ int main()
     uiElements.push_back(&crosshair);
 
 
-    bakeSceneLighting();
     for (Object*& obj : parents) obj->Upload();
     for (UIElement*& ui : uiElements) uploadUIElement(*ui);
         

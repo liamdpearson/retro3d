@@ -1,0 +1,48 @@
+{
+    "scene" : [
+
+
+
+        {
+            "type" : "mesh obj",
+            "name" : "level0",
+            "obj src" : "assets/level0/level0.obj",
+            "tex src" : "assets/level0/level0.jpg",
+            "transform" : [0, 0, 0,  0, 0, 1],
+            "isStatic" : true,
+            "children" : []
+        },
+
+
+        {
+            "type" : "camera",
+            "name" : "camera",
+            "transform" : [0, 0, 0,  0, 0, 1],
+            "fov" : 90,
+            "children" : [
+                {
+                    "type" : "mesh obj",
+                    "name" : "gun",
+                    "obj src" : "assets/gun/gun.obj",
+                    "tex src" : "assets/gun/gun.png",
+                    "transform" : [0, 0, -2,  -90, 0, 5],
+                    "isStatic" : false,
+                    "children" : []
+                }
+            ]
+        },
+
+
+        {
+            "type" : "light",
+            "name" : "light",
+            "position" : [0, 0, 0,  0, 0, 1],
+            "color" : [1, 1, 1],
+            "intensity" : 10,
+            "radius" : 15
+        }
+        
+
+
+    ]
+}

@@ -30,6 +30,7 @@ float lightAmbient = 0.2f;
 std::vector<Tri> occluders;
 std::vector<glm::vec3> lightGrid;
 
+// for finding the bounds box of the scene for light grid
 float minX = INFINITY;
 float maxX = -INFINITY;
 float minY = INFINITY;
@@ -523,7 +524,7 @@ UIElement makeUIElement(const char* texPath, float x, float y, float scale)
     UIElement ui;
 
     std::vector<int> dimensions = textureDimensions(texPath);
-    int width = dimensions[0], height = dimensions[1];
+    unsigned int width = dimensions[0], height = dimensions[1];
 
     ui.vertices = std::vector<float>{
         x - width/2 * scale, y + height/2 * scale, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f,
@@ -537,6 +538,7 @@ UIElement makeUIElement(const char* texPath, float x, float y, float scale)
     };
 
     ui.x = x; ui.y = y; ui.scale = scale;
+    ui.width = width; ui.height = height;
     ui.texture = loadTexture(texPath);
 
     return ui;
@@ -611,7 +613,7 @@ glm::vec3 sampleLightAt(const glm::vec3& p)
 void Object::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();
-    for (Object* child : children) child->CollectOccluders(world, out);
+    for (const auto& [name, child] : children) child->CollectOccluders(world, out);
 }
 
 
@@ -650,7 +652,7 @@ void Mesh::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
 void Object::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
 {
     glm::mat4 world = parentWorld * transform.matrix();
-    for (Object* child : children) child->BakeLighting(world, occluders);
+    for (const auto& [name, child] : children) child->BakeLighting(world, occluders);
 }
 
 
@@ -722,11 +724,11 @@ void bakeSceneLighting()
 {
     double start = glfwGetTime();
 
-    for (Object* obj : parents) obj->CollectOccluders(glm::mat4(1.0f), occluders);
+    for (const auto& [name, obj] : parents) obj->CollectOccluders(glm::mat4(1.0f), occluders);
 
     std::fprintf(stderr, "bake: %zu occluder tris\n", occluders.size());
 
-    for (Object* obj : parents) obj->BakeLighting(glm::mat4(1.0f), occluders);
+    for (const auto& [name, obj] : parents) obj->BakeLighting(glm::mat4(1.0f), occluders);
 
     // create light grid for dynamic objects
     for (Tri tri : occluders)
@@ -828,7 +830,7 @@ void uploadUIElement(UIElement &ui)
     glBindBuffer(GL_ARRAY_BUFFER, ui.VBO);
     glBufferData(GL_ARRAY_BUFFER,
              ui.vertices.size() * sizeof(float),
-             ui.vertices.data(), GL_STATIC_DRAW); // change GL_STATIC_DRAW to GL_DYNAMIC_DRAW if tri will warp in 3d space
+             ui.vertices.data(), GL_DYNAMIC_DRAW); // drawUIElement() rewrites these positions every frame
     
     const GLsizei stride = VERTEX_FLOATS * sizeof(float);
     // 0: pos
@@ -1077,6 +1079,26 @@ void drawObj(Mesh& obj)
 
 void drawUIElement(UIElement& ui)
 {
+    // update location
+    ui.vertices[0] = ui.x - ui.width/2 * ui.scale;
+    ui.vertices[1] = ui.y + ui.height/2 * ui.scale;
+
+    ui.vertices[19] = ui.x + ui.width/2 * ui.scale;
+    ui.vertices[20] = ui.y + ui.height/2 * ui.scale;
+
+    ui.vertices[38] = ui.x + ui.width/2 * ui.scale;
+    ui.vertices[39] = ui.y - ui.height/2 * ui.scale;
+
+    ui.vertices[57] = ui.x - ui.width/2 * ui.scale;
+    ui.vertices[58] = ui.y - ui.height/2 * ui.scale;
+
+    // Push the rewritten positions to the GPU — the CPU-side array alone
+    // changes nothing on screen; the VBO still holds last upload's bytes.
+    glBindBuffer(GL_ARRAY_BUFFER, ui.VBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0,
+             ui.vertices.size() * sizeof(float),
+             ui.vertices.data());
+
     glUniform1i(lightModeLoc, 1);
 
     glBindTexture(GL_TEXTURE_2D, ui.texture);
@@ -1167,7 +1189,7 @@ void endUI()
 // A mesh-less node has nothing of its own to upload; it just carries the walk.
 void Object::Upload()
 {
-    for (Object* child : children) child->Upload();
+    for (const auto& [name, child] : children) child->Upload();
 }
 
 void Mesh::Upload()
@@ -1211,7 +1233,7 @@ bool Mesh::SetAnimation(const std::string& name)
 // viewing by one frame.
 void Object::Compose()
 {
-    for (Object* child : this->children)
+    for (const auto& [name, child] : this->children)
     {
         child->world = this->world * child->transform.matrix();
         child->Compose();
@@ -1241,7 +1263,7 @@ void Camera::Compose()
 // runs. Recursion and nothing else on the base; Mesh overrides it to draw.
 void Object::Draw()
 {
-    for (Object* child : this->children) child->Draw();
+    for (const auto& [name, child] : this->children) child->Draw();
 }
 
 void Mesh::Draw()
