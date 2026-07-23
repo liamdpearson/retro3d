@@ -164,7 +164,7 @@ int main()
     // src, x, y, scale
     UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
 
-    // uiElements.push_back(&crosshair);
+    uiElements.push_back(&crosshair);
 
     bakeSceneLighting();
     for (const auto& [name, obj] : parents) obj->Upload();
@@ -207,8 +207,6 @@ int main()
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)        camera.transform.y += speed;
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)   camera.transform.y -= speed;
 
-        camera.children["gun"]->transform.yaw += 0.1;
-
         // Compose first: this refreshes every `world` in the graph and lets the
         // camera derive its pos/front, which clearBG() reads to build `view`.
         // Draw only after both, or the view matrix lags the scene by a frame.
@@ -221,7 +219,6 @@ int main()
         clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
 
         for (const auto& [name, obj] : parents) obj->Draw();
-
         beginUI();
         for (UIElement*& ui : uiElements) drawUIElement(*ui);
         endUI();

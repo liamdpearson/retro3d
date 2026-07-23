@@ -62,6 +62,13 @@ struct Transform
                 && yaw == other.yaw && pitch == other.pitch
                 && scale == other.scale);
     }
+
+    void operator+(const Transform& other)
+    {
+        x += other.x; y += other.y; z += other.z;
+        yaw += other.yaw; pitch += other.pitch; scale += other.scale;
+    }
+    
     Transform& operator=(const Transform&) = default;
 };
 
@@ -148,6 +155,13 @@ struct Object
     virtual void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out);
     virtual void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders);
 
+    // Recursion half of the raycast walk. Unlike the bake passes this reads each
+    // node's composed `world` directly rather than a parentWorld, so it is only
+    // valid after Compose() has run this frame. `closest` seeds/carries the best
+    // hit distance and `hit` the object at it — see the free raycast() below.
+    virtual void Raycast(const glm::vec3& origin, const glm::vec3& dir,
+                         float& closest, Object*& hit);
+
     // Virtual so deleting a Mesh through an Object* still frees its GL handles.
     virtual ~Object() = default;
 };
@@ -178,6 +192,9 @@ struct Mesh : Object
 
     void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
     void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders) override;
+
+    void Raycast(const glm::vec3& origin, const glm::vec3& dir,
+                 float& closest, Object*& hit) override;
 
     // Select which baked clip plays. Both reset animTime so the new clip starts
     // from its first frame. The string form returns false if no clip matches.
@@ -294,6 +311,14 @@ Mesh makeFbx(const char* objPath, const char* texPath,
 
 // Sample all lights at one world-space point, for lighting a whole mover at once.
 glm::vec3 sampleLightAt(const glm::vec3& p);
+
+// Cast a ray from `origin` along `dir` (need not be normalised) and return the
+// nearest object whose geometry it hits within `maxDist`, or nullptr if none.
+// Tests every mesh in `parents`, static and dynamic alike, against its current
+// world-space triangles. Must run after this frame's Compose(), since it reads
+// each node's composed `world`. Skinned meshes are tested in bind pose, not the
+// animated pose (the CPU never sees the skinning the shader does).
+Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist);
 
 // Bake vertex lighting for every static object in `parents`, with static
 // geometry casting shadows. Call after the scene graph is built and the lights

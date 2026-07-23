@@ -1,5 +1,15 @@
 {
     "scene" : [
+        
+        {
+            "type" : "mesh obj",
+            "name" : "gun",
+            "obj src" : "assets/gun/gun.obj",
+            "tex src" : "assets/gun/gun.png",
+            "transform" : [0, 0, -4,  -90, 0, 5],
+            "isStatic" : false,
+            "children" : []
+        },
 
 
 
@@ -17,19 +27,9 @@
         {
             "type" : "camera",
             "name" : "camera",
-            "transform" : [0, 0, 0,  0, 0, 1],
+            "transform" : [0, 0, 3,  90, 0, 1],
             "fov" : 90,
-            "children" : [
-                {
-                    "type" : "mesh obj",
-                    "name" : "gun",
-                    "obj src" : "assets/gun/gun.obj",
-                    "tex src" : "assets/gun/gun.png",
-                    "transform" : [0, 0, -2,  -90, 0, 5],
-                    "isStatic" : false,
-                    "children" : []
-                }
-            ]
+            "children" : []
         },
 
 

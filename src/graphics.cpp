@@ -582,6 +582,39 @@ static bool rayOccluded(const glm::vec3& origin, const glm::vec3& dir,
 }
 
 
+// Möller–Trumbore for a single triangle, returning the hit distance rather than
+// just whether it hit. Two-sided like rayOccluded(); on a hit in front of the
+// origin it writes the distance along `dir` to `outT` and returns true. `dir`
+// must be normalised for `outT` to be in world units.
+static bool rayTriangle(const glm::vec3& origin, const glm::vec3& dir,
+                        const glm::vec3& a, const glm::vec3& b, const glm::vec3& c,
+                        float& outT)
+{
+    const float EPS = 1e-6f;
+
+    glm::vec3 e1 = b - a;
+    glm::vec3 e2 = c - a;
+    glm::vec3 p  = glm::cross(dir, e2);
+    float det = glm::dot(e1, p);
+    if (glm::abs(det) < EPS) return false;   // ray runs parallel to the triangle
+
+    float invDet = 1.0f / det;
+    glm::vec3 tv = origin - a;
+
+    float u = glm::dot(tv, p) * invDet;
+    if (u < 0.0f || u > 1.0f) return false;
+
+    glm::vec3 q = glm::cross(tv, e1);
+    float v = glm::dot(dir, q) * invDet;
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    float t = glm::dot(e2, q) * invDet;
+    if (t <= EPS) return false;              // behind or on the origin
+    outT = t;
+    return true;
+}
+
+
 // Sample every light at a single world-space point. Deliberately has no normal
 // term: the caller applies one value to a whole mesh, so there is no surface to
 // take a lambert against. Brightness therefore falls off with distance alone.
@@ -714,6 +747,60 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
 
     // parentWorld, not world — see the note in Mesh::CollectOccluders().
     Object::BakeLighting(parentWorld, occluders);
+}
+
+
+// Recursion half of the raycast walk. A mesh-less node contributes no geometry
+// of its own but still passes the ray down to its children.
+void Object::Raycast(const glm::vec3& origin, const glm::vec3& dir,
+                     float& closest, Object*& hit)
+{
+    for (const auto& [name, child] : children) child->Raycast(origin, dir, closest, hit);
+}
+
+
+// Geometry half. Test every triangle of this mesh, transformed into world space
+// by its already-composed `world`, and keep the nearest hit found so far. No
+// isStatic gate: dynamic meshes are candidates too. Reading `world` directly is
+// safe here (unlike the bake) because Raycast only runs after Compose().
+void Mesh::Raycast(const glm::vec3& origin, const glm::vec3& dir,
+                   float& closest, Object*& hit)
+{
+    for (size_t i = 0; i + 2 < indices.size(); i += 3)
+    {
+        glm::vec3 corner[3];
+        for (int c = 0; c < 3; c++)
+        {
+            size_t v = (size_t)indices[i + c] * VERTEX_FLOATS;
+            glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
+            corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
+        }
+
+        float t;
+        if (rayTriangle(origin, dir, corner[0], corner[1], corner[2], t) && t < closest)
+        {
+            closest = t;
+            hit = this;
+        }
+    }
+
+    Object::Raycast(origin, dir, closest, hit);
+}
+
+
+// Cast a ray and return the nearest object it hits within maxDist, else nullptr.
+// closest starts at maxDist and shrinks to each nearer hit, so any object left
+// in `hit` at the end was struck before maxDist. dir is normalised so maxDist
+// and the internal distances share world units regardless of the caller's dir.
+Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist)
+{
+    glm::vec3 d = glm::normalize(dir);
+    float closest = maxDist;
+    Object* hit = nullptr;
+
+    for (const auto& [name, obj] : parents) obj->Raycast(origin, d, closest, hit);
+
+    return hit;
 }
 
 

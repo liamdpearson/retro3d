@@ -18,8 +18,8 @@ LDFLAGS  := -Lthird_party/glfw/lib
 # Link order matters with static libs: glfw3 first, then the system libs it needs.
 LDLIBS   := -lglfw3 -lopengl32 -lgdi32
 
-SRCS := src/game.cpp src/graphics.cpp third_party/glad/src/glad.c third_party/ufbx/ufbx.c
-TARGET := game.exe
+SRCS := src/scene_editor.cpp src/graphics.cpp third_party/glad/src/glad.c third_party/ufbx/ufbx.c
+TARGET := scene_editor.exe
 
 $(TARGET): $(SRCS)
 	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS) $(LDLIBS)
