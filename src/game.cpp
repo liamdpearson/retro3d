@@ -1,14 +1,4 @@
-#include "graphics.h"
-
-using json = nlohmann::json;
-
-// Initializes camera - values will be written over.
-Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
-              glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
-
-std::unordered_map<std::string, Object*> parents;
-std::vector<Light*> lights;
-std::vector<UIElement*> uiElements;
+#include "game.hpp"
 
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -22,123 +12,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 void removeChild(std::vector<Object*>& children, const Object* child)
 {
     children.erase(std::remove(children.begin(), children.end(), child), children.end());
-}
-
-
-// Initializes one object (and its subtree) from a scene.json entry. Returns the
-// node so the caller can parent it; null means no node was produced — either the
-// entry was a light, or its type was unrecognised.
-//
-// Nodes are heap-allocated because `parents`/`children` hold Object*, so they
-// have to outlive this call.
-static Object* buildNode(const json& j)
-{
-    const std::string type = j.value("type", "object");
-    const std::string name = j.value("name", ""); 
-
-    if (type == "light")
-    {
-        const json& p = j.at("position");
-        const json& c = j.at("color");
-
-        Light* light = new Light{glm::vec3{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>()},
-                                 glm::vec3{c.at(0).get<float>(), c.at(1).get<float>(), c.at(2).get<float>()},
-                                 j.at("intensity").get<float>(), j.at("radius").get<float>()};
-        
-        lights.push_back(light);
-        return nullptr; // a light isn't a scene node — it never enters the graph
-    }
-    
-    Transform transform{};
-    if (j.contains("transform"))
-    {
-        const json& t = j["transform"]; // x, y, z, yaw, pitch, scale
-        transform = Transform{t.at(0).get<float>(), t.at(1).get<float>(), t.at(2).get<float>(),
-                              t.at(3).get<float>(), t.at(4).get<float>(), t.at(5).get<float>()};
-    }
-
-    Object* node = nullptr;
-
-    if (type == "mesh obj")
-    {
-        // C++17 guarantees the returned Mesh is constructed straight into the
-        // allocation. Without that elision the temporary's destructor would run
-        // and free the GL handles the stored copy still points at.
-        node = new Mesh(makeObj(j.at("obj src").get<std::string>().c_str(),
-                                j.at("tex src").get<std::string>().c_str(),
-                                transform, j.value("isStatic", false)));
-    }
-    else if (type == "mesh fbx")
-    {
-        node = new Mesh(makeFbx(j.at("obj src").get<std::string>().c_str(),
-                                j.at("tex src").get<std::string>().c_str(),
-                                transform));
-    }
-    else if (type == "camera")
-    {
-        // The one node we don't allocate: graphics.cpp draws through the global
-        // `camera`, so the scene file only places it. Returning it here still
-        // gets it into `parents`, which Compose() requires — see Camera::Compose.
-        camera.FOV = j.value("fov", camera.FOV);
-        camera.transform = transform;
-        node = &camera;
-    }
-    else if (type == "object")
-    {
-        node = new Object(transform); // a bare pivot / attachment point
-    }
-    else
-    {
-        fprintf(stderr, "importScene: node '%s' has unknown type '%s', skipped\n",
-                name.c_str(), type.c_str());
-        return nullptr;
-    }
-
-    node->name = name;
-    node->transform = transform;
-    node->world = transform.matrix();
-
-    for (const json& child : j.value("children", json::array()))
-    {
-        Object* c = buildNode(child);
-        if (c && !node->children.insert({c->name, c}).second)
-            fprintf(stderr, "importScene: duplicate child name '%s' under '%s', dropped\n",
-                    c->name.c_str(), name.c_str());
-    }
-
-    return node;
-}
-
-
-void importScene(const char* path)
-{
-    std::ifstream file(path);
-    if (!file)
-    {
-        fprintf(stderr, "importScene: could not open '%s'\n", path);
-        return;
-    }
-
-    try
-    {
-        json scene;
-        file >> scene;
-
-        for (const json& node : scene.at("scene"))
-        {
-            Object* obj = buildNode(node);
-            if (obj && !parents.insert({obj->name, obj}).second)
-                fprintf(stderr, "importScene: duplicate root name '%s', dropped\n",
-                        obj->name.c_str());
-        }
-    }
-    catch(const json::exception& e)
-    {
-        // Bad key, bad type, malformed file — all land here. Leaving `parents`
-        // partly built is fine: whatever loaded still draws.
-        fprintf(stderr, "importScene: '%s': %s\n", path, e.what());
-    }
-    
 }
 
 
@@ -163,8 +36,11 @@ int main()
     // --- init ui elements --- //
     // src, x, y, scale
     UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
-
     uiElements.push_back(&crosshair);
+
+    Font uiFont = bakeFont("assets/arial.ttf", 48.0f);
+    UIText fpsLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1} };
+    uploadUIText(fpsLabel);
 
     bakeSceneLighting();
     for (const auto& [name, obj] : parents) obj->Upload();
@@ -220,7 +96,14 @@ int main()
 
         for (const auto& [name, obj] : parents) obj->Draw();
         beginUI();
+
         for (UIElement*& ui : uiElements) drawUIElement(*ui);
+
+        fpsLabel.text = "FPS: " + std::to_string(int(1/deltaTime));
+        fpsLabel.pos.x += 0.05;
+
+        drawText(fpsLabel);
+
         endUI();
 
         glfwSwapBuffers(window);

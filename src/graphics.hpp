@@ -8,7 +8,7 @@
 #include <glm/gtc/type_ptr.hpp>         // value_ptr (hand a matrix to OpenGL)
 #include <glm/gtc/quaternion.hpp>       // quat slerp, mat4_cast
 
-#include <nlohmann/json.hpp>            // json parser
+#include <nlohmann/json.hpp> // json parser
 
 #include <cstdio>
 #include <vector>
@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+
+
 
 const float PI = 3.14159265358979323;
 const int VERTEX_FLOATS = 19;
@@ -245,6 +247,41 @@ struct UIElement
     GLsizei indexCount = 6;
 };
 
+
+struct Glyph
+{
+    float u0, v0, u1, v1; // uv coords for char on font atlas
+    float w, h;           // glyph quad size
+    float xoff, yoff;     // pen -> top-left of the quad (yoff is negative above baseline)
+    float xadvance;       // how far the pen moves for the next glyph
+};
+
+
+struct Font
+{
+    GLuint atlas = 0;
+    int atlasW = 0, atlasH = 0;
+    float bakePixelHeight = 0.0f;
+    float  ascent = 0.0f;       // baseline offset below the top edge
+    float  lineHeight = 0.0f;   // pen drop for '\n'
+    Glyph  glyphs[96];          // ASCII 32..126
+};
+
+
+struct UIText
+{
+    glm::vec2   pos;
+    float       size = 1.0f;
+    std::string text;
+    Font*       font = nullptr;
+    glm::vec3   color = glm::vec3(1.0f);
+
+    // Rebuilt each frame by layoutText(); one call for the whole stirng.
+    std::vector<float>        vertices;
+    std::vector<unsigned int> indices;
+    GLuint VAO = 0, VBO = 0, EBO = 0;
+};
+
 extern int SW;
 extern int SH;
 
@@ -280,17 +317,13 @@ extern unsigned int fs;
 extern unsigned int shaderProgram;
 extern int modelLoc, viewLoc, projectionLoc;
 extern int boneMatricesLoc;
-extern int lightModeLoc, objectLightLoc;
+extern int lightModeLoc, objectLightLoc, textModeLoc;
 
 unsigned int compileShader(GLenum type, const char* src);
-
-void framebufferSizeCallback(GLFWwindow*, int width, int height);
 
 unsigned int loadTexture(const char* path);
 
 std::vector<int> textureDimensions(const char* path);
-
-void mouseCallback(GLFWwindow*, double xpos, double ypos);
 
 bool loadOBJ(const char* path,
             std::vector<float>& outVerts,
@@ -308,6 +341,8 @@ Mesh makeObj(const char* objPath, const char* texPath,
 // for animated objects
 Mesh makeFbx(const char* objPath, const char* texPath,
              Transform Transform);
+
+UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 
 // Sample all lights at one world-space point, for lighting a whole mover at once.
 glm::vec3 sampleLightAt(const glm::vec3& p);
@@ -327,18 +362,23 @@ void bakeSceneLighting();
 
 void uploadObject(Mesh &obj);
 
-void buildShaderProgram();
+void uploadUIElement(UIElement &ui);
 
-int initWindow();
+void uploadUIText(UIText& t);
+
+void layoutText(UIText& t);
 
 void drawObj(Mesh& obj);
+
+void drawUIElement(UIElement& ui);
+
+void drawText(UIText& t);
 
 void clearBG(float r, float g, float b, float a);
 
 // Bracket the screen-space UI pass; see graphics.cpp for the coordinate space.
 void beginUI();
+
 void endUI();
 
-void uploadUIElement(UIElement &ui);
-void drawUIElement(UIElement& ui);
-UIElement makeUIElement(const char* texPath, float x, float y, float scale);
+Font bakeFont(const char* path, float pixelHeight);

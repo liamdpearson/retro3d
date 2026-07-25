@@ -1,9 +1,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <stb/stb_truetype.h>
+
 #include <ufbx.h>
 
-#include "graphics.h"
+#include "graphics.hpp"
+
 
 int SW = 0;   // overwritten from the monitor's video mode in main()
 int SH = 0;
@@ -23,7 +27,7 @@ unsigned int fs;
 unsigned int shaderProgram;
 int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
-int lightModeLoc, objectLightLoc;
+int lightModeLoc, objectLightLoc, textModeLoc;
 
 float lightAmbient = 0.2f;
 
@@ -98,9 +102,17 @@ uniform sampler2D tex0;
 
 uniform int LightMode;      // 0 = baked per-vertex, 1 = per-object dynamic
 uniform vec3 ObjectLight;   // only read when LightMode == 1
+uniform int TextMode;       // 1 = glyph atlas
 
 void main()
 {
+    if (TextMode == 1)
+    {
+        float cov = texture(tex0, TexCoord).r;
+        FragColor = vec4(ObjectLight, cov);   // GL_SRC_ALPHA blend does the AA
+        return;
+    }
+    
     vec4 c = texture(tex0, TexCoord);
     if (c.a < 0.5) discard;   // Doom-style cutout: drop transparent texels entirely
 
@@ -172,23 +184,6 @@ std::vector<int> textureDimensions(const char* path)
         return std::vector<int>{0, 0};
     }
     return std::vector<int>{tw, th};
-}
-
-
-void mouseCallback(GLFWwindow*, double xpos, double ypos)
-{
-    if (firstMouse) { lastX = (float)xpos; lastY = (float)ypos; firstMouse = false; }
-
-    float xoffset = (float)(xpos - lastX);
-    float yoffset = (float)(lastY - ypos);
-    lastX = float(xpos);
-    lastY = float(ypos);
-
-    camera.transform.yaw -= xoffset * sensitivity;
-    camera.transform.pitch -= yoffset * sensitivity;
-
-    if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
-    if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
 }
 
 
@@ -943,76 +938,82 @@ void uploadUIElement(UIElement &ui)
 }
 
 
-void buildShaderProgram() {
-
-    // --- build the shader program ---
-    vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
-    fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
-    shaderProgram = glCreateProgram();
-
-    glAttachShader(shaderProgram, vs);
-    glAttachShader(shaderProgram, fs);
-    glLinkProgram(shaderProgram);
-
-    int linked = 0;
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linked);
-    if (!linked)
-    {
-        char log[512];
-        glGetProgramInfoLog(shaderProgram, sizeof(log), nullptr, log);
-        std::fprintf(stderr, "Program link error:\n%s\n", log);
-    }
-
-    modelLoc      = glGetUniformLocation(shaderProgram, "model");
-    viewLoc       = glGetUniformLocation(shaderProgram, "view");
-    projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-
-    lightModeLoc   = glGetUniformLocation(shaderProgram, "LightMode");
-    objectLightLoc = glGetUniformLocation(shaderProgram, "ObjectLight");
-
-    // The individual shaders are now baked into the program; we can delete them.
-    glDeleteShader(vs);
-    glDeleteShader(fs);
+void uploadUIText(UIText& t)
+{
+    glGenVertexArrays(1, &t.VAO);
+    glGenBuffers(1, &t.VBO);
+    glGenBuffers(1, &t.EBO);
+    glBindVertexArray(t.VAO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, t.EBO);   // recorded into the VAO
+    glBindBuffer(GL_ARRAY_BUFFER, t.VBO);
     
-    // Tell the "tex0" sampler to read from texture unit 0 (set once).
-    glUseProgram(shaderProgram);
-    glUniform1i(glGetUniformLocation(shaderProgram, "tex0"), 0);
+    const GLsizei stride = VERTEX_FLOATS * sizeof(float);
+    // 0: pos
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+    glEnableVertexAttribArray(0);
+    // 1: uv
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    // 2: normal
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, (void*)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    // 3: bone indices (stored as floats, cast to int later)
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    // 4: bone weights
+    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, (void*)(12 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    // 5: baked color
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, stride, (void*)(16 * sizeof(float)));
+    glEnableVertexAttribArray(5);
 
-    // Stage 3: bind-pose palette is all-identity, so skinning is a no-op.
-    // (Stage 4 replaces this with a per-frame Aⱼ·Bⱼ⁻¹ palette.)
-    boneMatricesLoc = glGetUniformLocation(shaderProgram, "boneMatrices");
-    std::vector<glm::mat4> identity(MAX_BONES, glm::mat4(1.0f));
-    glUniformMatrix4fv(boneMatricesLoc, MAX_BONES, GL_FALSE, glm::value_ptr(identity[0]));
+    glBindVertexArray(0);
 }
 
 
-int initWindow()
+// Zero-filled 19-float vertex: only pos + uv are read in text mode.
+static void pushGlyphQuad(std::vector<float>& v, std::vector<unsigned int>& idx,
+                          float x0, float y0, float x1, float y1, const Glyph& g)
 {
-    if (!glfwInit()) { std::fprintf(stderr, "failed to init GLFW\n"); return -1; }
+    unsigned int base = (unsigned int)(v.size() / VERTEX_FLOATS);
+    auto vert = [&](float px, float py, float u, float w){
+        v.insert(v.end(), { px, py, 0, u, w, 0,0,0, 0,0,0,0, 0,0,0,0, 1,1,1 });
+    };
+    vert(x0, y0, g.u0, g.v0);   // top-left
+    vert(x1, y0, g.u1, g.v0);   // top-right
+    vert(x1, y1, g.u1, g.v1);   // bottom-right
+    vert(x0, y1, g.u0, g.v1);   // bottom-left
+    idx.insert(idx.end(), { base+0, base+1, base+2, base+0, base+2, base+3 });
+}
 
-    GLFWmonitor* moniter = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(moniter);
-    SW = mode->width;
-    SH = mode->height;
-    lastX = SW/2, lastY = SH/2;
-    
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    window = glfwCreateWindow(SW, SH, "OpenGL", moniter, nullptr);
-    if (!window) { std::fprintf(stderr, "Failed to create window\n"); glfwTerminate(); return -1; }
-    glfwSetWindowPos(window, 0, 0);
-    glfwMakeContextCurrent(window);
+// Walks the string, placing each glyph along the baseline. size is a straight
+// multiplier over bake pixels, so size == bakePixelHeight renders at 1:1.
+void layoutText(UIText& t)
+{
+    t.vertices.clear();
+    t.indices.clear();
+    if (!t.font) return;
 
-    glfwSetCursorPosCallback(window, mouseCallback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    const Font& f = *t.font;
+    float s = t.size / f.bakePixelHeight;   // <-- treat size as a pixel height
+    float penX = t.pos.x;
+    float baseY = t.pos.y + f.ascent * s;   // baseline sits `ascent` below the top
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    { std::fprintf(stderr, "Failed to init GLAD\n"); glfwTerminate(); return -1; }
+    for (unsigned char ch : t.text)
+    {
+        if (ch == '\n') { penX = t.pos.x; baseY += f.lineHeight * s; continue; }
+        if (ch < 32 || ch > 126) continue;   // outside the baked range
 
-    glEnable(GL_DEPTH_TEST);
-    return 0;
+        const Glyph& g = f.glyphs[ch - 32];
+        if (g.w > 0 && g.h > 0)               // space advances but has no quad
+        {
+            float x0 = penX + g.xoff * s;
+            float y0 = baseY + g.yoff * s;
+            pushGlyphQuad(t.vertices, t.indices, x0, y0, x0 + g.w * s, y0 + g.h * s, g);
+        }
+        penX += g.xadvance * s;
+    }
 }
 
 
@@ -1164,6 +1165,7 @@ void drawObj(Mesh& obj)
     glDrawElements(GL_TRIANGLES, obj.indexCount, GL_UNSIGNED_INT, 0);
 }
 
+
 void drawUIElement(UIElement& ui)
 {
     // update location
@@ -1191,6 +1193,31 @@ void drawUIElement(UIElement& ui)
     glBindTexture(GL_TEXTURE_2D, ui.texture);
     glBindVertexArray(ui.VAO);
     glDrawElements(GL_TRIANGLES, ui.indexCount, GL_UNSIGNED_INT, 0);
+}
+
+
+// Rebuilds geometry each call (the string may have changed) and draws the whole
+// line in one call. Must be issued between beginUI() and endUI().
+void drawText(UIText& t)
+{
+    layoutText(t);
+    if (t.indices.empty()) return;
+
+    glBindVertexArray(t.VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, t.VBO);
+    glBufferData(GL_ARRAY_BUFFER, t.vertices.size() * sizeof(float),
+                 t.vertices.data(), GL_DYNAMIC_DRAW);            // orphan + refill
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, t.EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, t.indices.size() * sizeof(unsigned int),
+                 t.indices.data(), GL_DYNAMIC_DRAW);
+
+    glUniform1i(textModeLoc, 1);
+    glUniform3f(objectLightLoc, t.color.r, t.color.g, t.color.b);  // reused as text tint
+
+    glBindTexture(GL_TEXTURE_2D, t.font->atlas);
+    glDrawElements(GL_TRIANGLES, (GLsizei)t.indices.size(), GL_UNSIGNED_INT, 0);
+
+    glUniform1i(textModeLoc, 0);   // back to normal UI for whatever draws next
 }
 
 
@@ -1223,6 +1250,7 @@ void clearBG(float r, float g, float b, float a)
 
     glActiveTexture(GL_TEXTURE0);
 }
+
 
 // Switches the shared shader over to 2D screen-space drawing. Call once after
 // the 3D Draw() pass; everything issued afterwards is UI until the next frame's
@@ -1265,6 +1293,7 @@ void beginUI()
     glActiveTexture(GL_TEXTURE0);
 }
 
+
 // Undoes beginUI()'s state so the next frame's 3D pass starts clean. The
 // matrices don't need restoring — clearBG() unconditionally reuploads all three.
 void endUI()
@@ -1273,11 +1302,13 @@ void endUI()
     glEnable(GL_DEPTH_TEST);
 }
 
+
 // A mesh-less node has nothing of its own to upload; it just carries the walk.
 void Object::Upload()
 {
     for (const auto& [name, child] : children) child->Upload();
 }
+
 
 void Mesh::Upload()
 {
@@ -1285,10 +1316,12 @@ void Mesh::Upload()
     Object::Upload();
 }
 
+
 void Camera::Upload()
 {
     Object::Upload();
 }
+
 
 void Mesh::SetAnimation(int index)
 {
@@ -1296,6 +1329,7 @@ void Mesh::SetAnimation(int index)
     currentAnim = index;
     animTime = 0.0f;   // restart the new clip from its first frame
 }
+
 
 bool Mesh::SetAnimation(const std::string& name)
 {
@@ -1309,6 +1343,7 @@ bool Mesh::SetAnimation(const std::string& name)
     }
     return false;
 }
+
 
 // Composition pass. `world` is set by the caller for roots (see main's loop) and
 // by the parent for children, so a mesh-less pivot still folds its transform
@@ -1326,6 +1361,7 @@ void Object::Compose()
         child->Compose();
     }
 }
+
 
 void Camera::Compose()
 {
@@ -1346,6 +1382,7 @@ void Camera::Compose()
     Object::Compose();
 }
 
+
 // Draw only — every `world` in the graph is already up to date by the time this
 // runs. Recursion and nothing else on the base; Mesh overrides it to draw.
 void Object::Draw()
@@ -1353,11 +1390,13 @@ void Object::Draw()
     for (const auto& [name, child] : this->children) child->Draw();
 }
 
+
 void Mesh::Draw()
 {
     drawObj(*this);
     Object::Draw();
 }
+
 
 Mesh::~Mesh()
 {
@@ -1365,4 +1404,63 @@ Mesh::~Mesh()
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
     glDeleteTextures(1, &texture);
+}
+
+
+Font bakeFont(const char* path, float pixelHeight)
+{
+    std::ifstream f(path, std::ios::binary);
+    std::vector<unsigned char> ttf((std::istreambuf_iterator<char>(f)),
+                                    std::istreambuf_iterator<char>());
+
+    Font font;
+    font.bakePixelHeight = pixelHeight;
+    font.atlasW = 512;
+    font.atlasH = 512;
+
+    // stb rasterises ASCII 32..126 into one 8-bit coverage bitmap and fills cdata
+    // with pixel rects + metrics. 512x512 comfortably holds a ~48px ASCII set;
+    // bump it if BakeFontBitmap returns <= 0 (ran out of atlas room).
+    std::vector<unsigned char> bitmap(font.atlasW * font.atlasH);
+    stbtt_bakedchar cdata[96];
+    stbtt_BakeFontBitmap(ttf.data(), 0, pixelHeight,
+                         bitmap.data(), font.atlasW, font.atlasH,
+                         32, 96, cdata);
+
+    // Vertical metrics for baseline placement and line spacing.
+    stbtt_fontinfo info;
+    stbtt_InitFont(&info, ttf.data(), 0);
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(&info, &asc, &desc, &gap);
+    float sc = stbtt_ScaleForPixelHeight(&info, pixelHeight);
+    font.ascent     = asc * sc;
+    font.lineHeight = (asc - desc + gap) * sc;
+
+    // Convert stb's pixel rects into normalised UVs + our Glyph metrics.
+    for (int i = 0; i < 96; ++i)
+    {
+        const stbtt_bakedchar& c = cdata[i];
+        Glyph& g = font.glyphs[i];
+        g.u0 = c.x0 / (float)font.atlasW;  g.v0 = c.y0 / (float)font.atlasH;
+        g.u1 = c.x1 / (float)font.atlasW;  g.v1 = c.y1 / (float)font.atlasH;
+        g.w  = (float)(c.x1 - c.x0);       g.h  = (float)(c.y1 - c.y0);
+        g.xoff = c.xoff;                   g.yoff = c.yoff;
+        g.xadvance = c.xadvance;
+    }
+
+    // Upload the coverage atlas as a single-channel texture. No stbi flip is in
+    // play here (we bypass loadTexture), so row 0 is the top and v0 = top edge,
+    // which matches beginUI()'s y-down ortho.
+    glGenTextures(1, &font.atlas);
+    glBindTexture(GL_TEXTURE_2D, font.atlas);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);   // 1 byte/texel: rows aren't 4-aligned
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED,
+                 font.atlasW, font.atlasH, 0,
+                 GL_RED, GL_UNSIGNED_BYTE, bitmap.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    return font;
 }
