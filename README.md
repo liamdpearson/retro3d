@@ -16,4 +16,3 @@ The supported types are as follows:
 Here is an example of a scene:
 
 *scene image* use your imagination for now
-
