@@ -35,6 +35,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         curElement = &(curObject->transform.scale);
         editMultiplier = 0.1f;
     }
+
+    else if (key == GLFW_KEY_P && action == GLFW_PRESS) {
+        exportScene("scene.json");
+    }
 }
 
 

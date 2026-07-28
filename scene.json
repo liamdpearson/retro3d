@@ -1,48 +1,81 @@
 {
-    "scene" : [
-        
+    "scene": [
         {
-            "type" : "mesh obj",
-            "name" : "gun",
-            "obj src" : "assets/gun/gun.obj",
-            "tex src" : "assets/gun/gun.png",
-            "transform" : [0, 0, -4,  -90, 0, 5],
-            "isStatic" : false,
-            "children" : []
+            "color": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "intensity": 10.0,
+            "name": "light",
+            "position": [
+                8.599955558776855,
+                0.0,
+                0.0
+            ],
+            "radius": 15.0,
+            "type": "light"
         },
-
-
-
         {
-            "type" : "mesh obj",
-            "name" : "level0",
-            "obj src" : "assets/level0/level0.obj",
-            "tex src" : "assets/level0/level0.jpg",
-            "transform" : [0, 0, 0,  0, 0, 1],
-            "isStatic" : true,
-            "children" : []
+            "children": [],
+            "isStatic": true,
+            "name": "level0",
+            "obj src": "assets/level0/level0.obj",
+            "tex src": "assets/level0/level0.jpg",
+            "transform": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0
+            ],
+            "type": "mesh-obj"
         },
-
-
         {
-            "type" : "camera",
-            "name" : "camera",
-            "transform" : [0, 0, 3,  90, 0, 1],
-            "fov" : 90,
-            "children" : []
-        },
-
-
-        {
-            "type" : "light",
-            "name" : "light",
-            "position" : [0, 0, 0],
-            "color" : [1, 1, 1],
-            "intensity" : 10,
-            "radius" : 15
+            "children": [
+                {
+                    "children": [
+                        {
+                            "children": [],
+                            "isStatic": false,
+                            "name": "gun",
+                            "obj src": "assets/gun/gun.obj",
+                            "tex src": "assets/gun/gun.png",
+                            "transform": [
+                                0.0,
+                                0.0,
+                                -4.0,
+                                -90.0,
+                                0.0,
+                                5.0
+                            ],
+                            "type": "mesh-obj"
+                        }
+                    ],
+                    "name": "pivot1",
+                    "transform": [
+                        2.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "type": "pivot"
+                }
+            ],
+            "fov": 90.0,
+            "name": "camera",
+            "transform": [
+                0.0,
+                0.0,
+                3.0,
+                40.0,
+                0.0,
+                1.0
+            ],
+            "type": "camera"
         }
-        
-
-
     ]
 }

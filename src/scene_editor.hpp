@@ -4,6 +4,8 @@
 
 using json = nlohmann::json;
 
+
+
 // Initializes camera - values will be written over.
 Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
               glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
@@ -31,13 +33,21 @@ static Object* buildNode(const json& j)
     if (type == "light")
     {
         const json& p = j.at("position");
+        const json& c = j.at("color");
 
         Mesh* light = new Mesh(makeObj("assets/engine_assets/light/light.obj",
                                         "assets/engine_assets/light/light.png",
                                         Transform{p.at(0).get<float>(), p.at(1).get<float>(),
                                         p.at(2).get<float>(), 0.0f, 0.0f, 1.0f}, false));
 
-        light->name = name;
+        light->name = type + " "
+                    + name + " "
+                    + std::to_string(c.at(0).get<float>()) + " "
+                    + std::to_string(c.at(1).get<float>()) + " "
+                    + std::to_string(c.at(2).get<float>()) + " "
+                    + std::to_string(j.at("intensity").get<float>()) + " "
+                    + std::to_string(j.at("radius").get<float>());
+                            
         parents.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
     }
@@ -52,30 +62,51 @@ static Object* buildNode(const json& j)
 
     Object* node = nullptr;
 
-    if (type == "mesh obj")
+    if (type == "mesh-obj")
     {
         // C++17 guarantees the returned Mesh is constructed straight into the
         // allocation. Without that elision the temporary's destructor would run
         // and free the GL handles the stored copy still points at.
         node = new Mesh(makeObj(j.at("obj src").get<std::string>().c_str(),
                                 j.at("tex src").get<std::string>().c_str(),
-                                transform, j.value("isStatic", false)));
+                                transform, false));
+
+        node->name = type + " "
+                    + name + " "
+                    + j.at("obj src").get<std::string>() + " "
+                    + j.at("tex src").get<std::string>() + " "
+                    + std::to_string(j.at("isStatic").get<bool>());
     }
-    else if (type == "mesh fbx")
+    else if (type == "mesh-fbx")
     {
         node = new Mesh(makeFbx(j.at("obj src").get<std::string>().c_str(),
                                 j.at("tex src").get<std::string>().c_str(),
                                 transform));
+        
+
+        node->name = type + " "
+                    + name + " "
+                    + j.at("obj src").get<std::string>() + " "
+                    + j.at("tex src").get<std::string>();
     }
     else if (type == "camera")
     {
         node = new Mesh(makeObj("assets/engine_assets/camera/camera.obj",
                                 "assets/engine_assets/camera/camera.png",
                                 transform, false));
+        
+        node->name = type + " "
+                    + name + " "
+                    + std::to_string(j.at("fov").get<float>());
     }
     else if (type == "pivot")
     {
-        node = new Object(transform); // a bare pivot / attachment point
+        node = new Mesh(makeObj("assets/engine_assets/pivot/pivot.obj",
+                                "assets/engine_assets/pivot/pivot.png",
+                                transform, false));
+
+        node->name = type + " "
+                    + name;
     }
     else
     {
@@ -84,7 +115,6 @@ static Object* buildNode(const json& j)
         return nullptr;
     }
 
-    node->name = type + " - " + name;
     node->transform = transform;
     node->world = transform.matrix();
 
@@ -124,7 +154,106 @@ void importScene(const char* path)
         // partly built is fine: whatever loaded still draws.
         fprintf(stderr, "importScene: '%s': %s\n", path, e.what());
     }
-    
+}
+
+
+// Inverse of buildNode(): buildNode packs every field that isn't a live
+// transform into `name` (space-separated: type, display name, then the
+// type's fixed fields) purely so it can be recovered here. Splitting on
+// whitespace and taking the last K tokens as the fixed fields — with
+// whatever sits between the type and them as the display name — undoes
+// that packing.
+static json objectToJson(Object* node)
+{
+    std::vector<std::string> tokens;
+    { std::istringstream iss(node->name); std::string tok; while (iss >> tok) tokens.push_back(tok); }
+
+    const std::string type = tokens.empty() ? "object" : tokens[0];
+
+    // Tokens between the type and the last `trailing` fields are the display
+    // name (rejoined with single spaces).
+    auto displayName = [&](size_t trailing) -> std::string
+    {
+        std::string out;
+        for (size_t i = 1; i + trailing < tokens.size(); ++i)
+        {
+            if (!out.empty()) out += " ";
+            out += tokens[i];
+        }
+        return out;
+    };
+
+    json j;
+    j["type"] = type;
+
+    if (type == "light")
+    {
+        j["name"] = displayName(5);
+        j["position"] = { node->transform.x, node->transform.y, node->transform.z };
+        j["color"] = { std::stof(tokens[tokens.size() - 5]),
+                        std::stof(tokens[tokens.size() - 4]),
+                        std::stof(tokens[tokens.size() - 3]) };
+        j["intensity"] = std::stof(tokens[tokens.size() - 2]);
+        j["radius"]    = std::stof(tokens[tokens.size() - 1]);
+        return j; // lights carry no transform/children in the scene format
+    }
+
+    j["transform"] = { node->transform.x, node->transform.y, node->transform.z,
+                        node->transform.yaw, node->transform.pitch, node->transform.scale };
+
+    if (type == "mesh-obj")
+    {
+        j["name"] = displayName(3);
+        j["obj src"]   = tokens[tokens.size() - 3];
+        j["tex src"]   = tokens[tokens.size() - 2];
+        j["isStatic"]  = tokens[tokens.size() - 1] == "1";
+    }
+    else if (type == "mesh-fbx")
+    {
+        j["name"] = displayName(2);
+        j["obj src"] = tokens[tokens.size() - 2];
+        j["tex src"] = tokens[tokens.size() - 1];
+    }
+    else if (type == "camera")
+    {
+        j["name"] = displayName(1);
+        j["fov"]  = std::stof(tokens[tokens.size() - 1]);
+    }
+    else // pivot, or anything else with no packed fields
+    {
+        j["name"] = displayName(0);
+    }
+
+    j["children"] = json::array();
+    for (Object* child : node->children)
+        j["children"].push_back(objectToJson(child));
+
+    return j;
+}
+
+
+void exportScene(const char* path)
+{
+    json scene;
+    scene["scene"] = json::array();
+
+    for (Object* node : parents)
+    {
+        // The live fly-camera sits in `parents` for Compose()/raycast bookkeeping
+        // only — it isn't scene data (the "camera" *type* above is a placed gizmo
+        // built by buildNode, a different object entirely).
+        if (node == &camera) continue;
+
+        scene["scene"].push_back(objectToJson(node));
+    }
+
+    std::ofstream file(path);
+    if (!file)
+    {
+        fprintf(stderr, "exportScene: could not open '%s' for writing\n", path);
+        return;
+    }
+    file << scene.dump(4);
 }
 
 

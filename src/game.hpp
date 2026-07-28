@@ -48,7 +48,7 @@ static Object* buildNode(const json& j)
 
     Object* node = nullptr;
 
-    if (type == "mesh obj")
+    if (type == "mesh-obj")
     {
         // C++17 guarantees the returned Mesh is constructed straight into the
         // allocation. Without that elision the temporary's destructor would run
@@ -57,7 +57,7 @@ static Object* buildNode(const json& j)
                                 j.at("tex src").get<std::string>().c_str(),
                                 transform, j.value("isStatic", false)));
     }
-    else if (type == "mesh fbx")
+    else if (type == "mesh-fbx")
     {
         node = new Mesh(makeFbx(j.at("obj src").get<std::string>().c_str(),
                                 j.at("tex src").get<std::string>().c_str(),
