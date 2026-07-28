@@ -45,14 +45,18 @@ int main()
     glfwSetKeyCallback(window, key_callback);
 
     importScene("scene.json");
-    parents.insert({"editor_cam", &camera});
+    parents.push_back(&camera);
     
     // --- init ui elements --- //
     // src, x, y, scale
     UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
     uiElements.push_back(&crosshair);
 
-    for (const auto& [name, obj] : parents) obj->Upload();
+    Font uiFont = bakeFont("assets/arial.ttf", 48.0f);
+    UIText curObjectLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1} };
+    uploadUIText(curObjectLabel);
+
+    for (Object*& obj : parents) obj->Upload();
     for (UIElement*& ui : uiElements) uploadUIElement(*ui);
         
     // --- render loop --- //
@@ -95,7 +99,7 @@ int main()
         // Compose first: this refreshes every `world` in the graph and lets the
         // camera derive its pos/front, which clearBG() reads to build `view`.
         // Draw only after both, or the view matrix lags the scene by a frame.
-        for (const auto& [name, obj] : parents)
+        for (Object*& obj : parents)
         {
             obj->world = obj->transform.matrix();
             obj->Compose();
@@ -112,10 +116,26 @@ int main()
 
         clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
 
-        for (const auto& [name, obj] : parents) obj->Draw();
+        for (Object*& obj : parents) obj->Draw();
 
         beginUI();
+
         for (UIElement*& ui : uiElements) drawUIElement(*ui);
+
+        if (curObject)
+        {
+            curObjectLabel.text = "Selected: " + curObject->name + '\n'
+                                + "X: " + std::to_string(curObject->transform.x) + '\n'
+                                + "Y: " + std::to_string(curObject->transform.y) + '\n'
+                                + "Z: " + std::to_string(curObject->transform.z) + '\n'
+                                + "Yaw: " + std::to_string(curObject->transform.yaw) + '\n'
+                                + "Pitch: " + std::to_string(curObject->transform.pitch) + '\n'
+                                + "Scale: " + std::to_string(curObject->transform.scale);
+        } else {
+            curObjectLabel.text = "Selected: none";
+        }
+        drawText(curObjectLabel);
+
         endUI();
 
         glfwSwapBuffers(window);

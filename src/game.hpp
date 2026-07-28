@@ -9,7 +9,7 @@ using json = nlohmann::json;
 Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
               glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
 
-std::unordered_map<std::string, Object*> parents;
+std::vector<Object*> parents;
 std::vector<Light*> lights;
 std::vector<UIElement*> uiElements;
 
@@ -72,7 +72,7 @@ static Object* buildNode(const json& j)
         camera.transform = transform;
         node = &camera;
     }
-    else if (type == "object")
+    else if (type == "pivot")
     {
         node = new Object(transform); // a bare pivot / attachment point
     }
@@ -90,9 +90,7 @@ static Object* buildNode(const json& j)
     for (const json& child : j.value("children", json::array()))
     {
         Object* c = buildNode(child);
-        if (c && !node->children.insert({c->name, c}).second)
-            fprintf(stderr, "importScene: duplicate child name '%s' under '%s', dropped\n",
-                    c->name.c_str(), name.c_str());
+        if (c) node->children.push_back(c);
     }
 
     return node;
@@ -116,9 +114,7 @@ void importScene(const char* path)
         for (const json& node : scene.at("scene"))
         {
             Object* obj = buildNode(node);
-            if (obj && !parents.insert({obj->name, obj}).second)
-                fprintf(stderr, "importScene: duplicate root name '%s', dropped\n",
-                        obj->name.c_str());
+            if (obj) parents.push_back(obj);
         }
     }
     catch(const json::exception& e)

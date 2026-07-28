@@ -8,7 +8,7 @@ using json = nlohmann::json;
 Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
               glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
 
-std::unordered_map<std::string, Object*> parents;
+std::vector<Object*> parents;
 std::vector<Light*> lights;
 std::vector<UIElement*> uiElements;
 Object* curObject = nullptr;
@@ -25,7 +25,7 @@ bool rightHeld = false;
 // have to outlive this call.
 static Object* buildNode(const json& j)
 {
-    const std::string type = j.value("type", "object");
+    const std::string type = j.value("type", "object"); 
     const std::string name = j.value("name", ""); 
 
     if (type == "light")
@@ -36,8 +36,9 @@ static Object* buildNode(const json& j)
                                         "assets/engine_assets/light/light.png",
                                         Transform{p.at(0).get<float>(), p.at(1).get<float>(),
                                         p.at(2).get<float>(), 0.0f, 0.0f, 1.0f}, false));
-        
-        parents.insert({"light", light});
+
+        light->name = name;
+        parents.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
     }
     
@@ -72,7 +73,7 @@ static Object* buildNode(const json& j)
                                 "assets/engine_assets/camera/camera.png",
                                 transform, false));
     }
-    else if (type == "object")
+    else if (type == "pivot")
     {
         node = new Object(transform); // a bare pivot / attachment point
     }
@@ -83,16 +84,14 @@ static Object* buildNode(const json& j)
         return nullptr;
     }
 
-    node->name = name;
+    node->name = type + " - " + name;
     node->transform = transform;
     node->world = transform.matrix();
 
     for (const json& child : j.value("children", json::array()))
     {
         Object* c = buildNode(child);
-        if (c && !node->children.insert({c->name, c}).second)
-            fprintf(stderr, "importScene: duplicate child name '%s' under '%s', dropped\n",
-                    c->name.c_str(), name.c_str());
+        if (c) node->children.push_back(c);
     }
 
     return node;
@@ -116,9 +115,7 @@ void importScene(const char* path)
         for (const json& node : scene.at("scene"))
         {
             Object* obj = buildNode(node);
-            if (obj && !parents.insert({obj->name, obj}).second)
-                fprintf(stderr, "importScene: duplicate root name '%s', dropped\n",
-                        obj->name.c_str());
+            if (obj) parents.push_back(obj);
         }
     }
     catch(const json::exception& e)

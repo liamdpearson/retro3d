@@ -641,7 +641,7 @@ glm::vec3 sampleLightAt(const glm::vec3& p)
 void Object::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();
-    for (const auto& [name, child] : children) child->CollectOccluders(world, out);
+    for (Object*& child : children) child->CollectOccluders(world, out);
 }
 
 
@@ -680,7 +680,7 @@ void Mesh::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
 void Object::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
 {
     glm::mat4 world = parentWorld * transform.matrix();
-    for (const auto& [name, child] : children) child->BakeLighting(world, occluders);
+    for (Object*& child : children) child->BakeLighting(world, occluders);
 }
 
 
@@ -750,7 +750,7 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
 void Object::Raycast(const glm::vec3& origin, const glm::vec3& dir,
                      float& closest, Object*& hit)
 {
-    for (const auto& [name, child] : children) child->Raycast(origin, dir, closest, hit);
+    for (Object*& child : children) child->Raycast(origin, dir, closest, hit);
 }
 
 
@@ -793,7 +793,7 @@ Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist)
     float closest = maxDist;
     Object* hit = nullptr;
 
-    for (const auto& [name, obj] : parents) obj->Raycast(origin, d, closest, hit);
+    for (Object*& obj : parents) obj->Raycast(origin, d, closest, hit);
 
     return hit;
 }
@@ -806,11 +806,11 @@ void bakeSceneLighting()
 {
     double start = glfwGetTime();
 
-    for (const auto& [name, obj] : parents) obj->CollectOccluders(glm::mat4(1.0f), occluders);
+    for (Object*& obj : parents) obj->CollectOccluders(glm::mat4(1.0f), occluders);
 
     std::fprintf(stderr, "bake: %zu occluder tris\n", occluders.size());
 
-    for (const auto& [name, obj] : parents) obj->BakeLighting(glm::mat4(1.0f), occluders);
+    for (Object*& obj : parents) obj->BakeLighting(glm::mat4(1.0f), occluders);
 
     // create light grid for dynamic objects
     for (Tri tri : occluders)
@@ -1306,7 +1306,7 @@ void endUI()
 // A mesh-less node has nothing of its own to upload; it just carries the walk.
 void Object::Upload()
 {
-    for (const auto& [name, child] : children) child->Upload();
+    for (Object*& child : children) child->Upload();
 }
 
 
@@ -1355,7 +1355,7 @@ bool Mesh::SetAnimation(const std::string& name)
 // viewing by one frame.
 void Object::Compose()
 {
-    for (const auto& [name, child] : this->children)
+    for (Object*& child : this->children)
     {
         child->world = this->world * child->transform.matrix();
         child->Compose();
@@ -1387,7 +1387,7 @@ void Camera::Compose()
 // runs. Recursion and nothing else on the base; Mesh overrides it to draw.
 void Object::Draw()
 {
-    for (const auto& [name, child] : this->children) child->Draw();
+    for (Object*& child : this->children) child->Draw();
 }
 
 

@@ -134,7 +134,7 @@ struct Object
     // as a matrix (rather than decomposing back to yaw/pitch) avoids gimbal lock
     // and preserves any roll produced by composing rotated parents and children.
     glm::mat4 world = glm::mat4(1.0f);
-    std::unordered_map<std::string, Object*> children = {};
+    std::vector<Object*> children = {};
 
 
     Object() = default;
@@ -297,7 +297,7 @@ extern float deltaTime, lastFrame;
 extern const char* vertexShaderSrc;
 extern const char* fragmentShaderSrc;
 
-extern std::unordered_map<std::string, Object*> parents;
+extern std::vector<Object*> parents;
 extern std::vector<Light*> lights;
 extern std::vector<UIElement*> uiElements;
 extern std::vector<Tri> occluders;
