@@ -5,7 +5,6 @@
 using json = nlohmann::json;
 
 
-
 // Initializes camera - values will be written over.
 Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
               glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
@@ -13,10 +12,6 @@ Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
 std::vector<Object*> parents;
 std::vector<Light*> lights;
 std::vector<UIElement*> uiElements;
-Object* curObject = nullptr;
-float* curElement = nullptr;
-float editMultiplier = 1;
-bool rightHeld = false;
 
 
 // Initializes one object (and its subtree) from a scene.json entry. Returns the
@@ -27,7 +22,7 @@ bool rightHeld = false;
 // have to outlive this call.
 static Object* buildNode(const json& j)
 {
-    const std::string type = j.value("type", "object"); 
+    const std::string type = j.value("type", "object");
     const std::string name = j.value("name", ""); 
 
     if (type == "light")
@@ -35,20 +30,11 @@ static Object* buildNode(const json& j)
         const json& p = j.at("position");
         const json& c = j.at("color");
 
-        Mesh* light = new Mesh(makeObj("assets/engine_assets/light/light.obj",
-                                        "assets/engine_assets/light/light.png",
-                                        Transform{p.at(0).get<float>(), p.at(1).get<float>(),
-                                        p.at(2).get<float>(), 0.0f, 0.0f, 1.0f}, false));
-
-        light->name = type + " "
-                    + name + " "
-                    + std::to_string(c.at(0).get<float>()) + " "
-                    + std::to_string(c.at(1).get<float>()) + " "
-                    + std::to_string(c.at(2).get<float>()) + " "
-                    + std::to_string(j.at("intensity").get<float>()) + " "
-                    + std::to_string(j.at("radius").get<float>());
-                            
-        parents.push_back(light);
+        Light* light = new Light{glm::vec3{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>()},
+                                 glm::vec3{c.at(0).get<float>(), c.at(1).get<float>(), c.at(2).get<float>()},
+                                 j.at("intensity").get<float>(), j.at("radius").get<float>()};
+        
+        lights.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
     }
     
@@ -57,7 +43,8 @@ static Object* buildNode(const json& j)
     {
         const json& t = j["transform"]; // x, y, z, yaw, pitch, scale
         transform = Transform{t.at(0).get<float>(), t.at(1).get<float>(), t.at(2).get<float>(),
-                              t.at(3).get<float>(), t.at(4).get<float>(), t.at(5).get<float>()};
+                              t.at(3).get<float>(), t.at(4).get<float>(), t.at(5).get<float>(),
+                              t.at(6).get<float>()};
     }
 
     Object* node = nullptr;
@@ -69,44 +56,26 @@ static Object* buildNode(const json& j)
         // and free the GL handles the stored copy still points at.
         node = new Mesh(makeObj(j.at("obj src").get<std::string>().c_str(),
                                 j.at("tex src").get<std::string>().c_str(),
-                                transform, false));
-
-        node->name = type + " "
-                    + name + " "
-                    + j.at("obj src").get<std::string>() + " "
-                    + j.at("tex src").get<std::string>() + " "
-                    + std::to_string(j.at("isStatic").get<bool>());
+                                transform, j.value("isStatic", false)));
     }
     else if (type == "mesh-fbx")
     {
         node = new Mesh(makeFbx(j.at("obj src").get<std::string>().c_str(),
                                 j.at("tex src").get<std::string>().c_str(),
                                 transform));
-        
-
-        node->name = type + " "
-                    + name + " "
-                    + j.at("obj src").get<std::string>() + " "
-                    + j.at("tex src").get<std::string>();
     }
     else if (type == "camera")
     {
-        node = new Mesh(makeObj("assets/engine_assets/camera/camera.obj",
-                                "assets/engine_assets/camera/camera.png",
-                                transform, false));
-        
-        node->name = type + " "
-                    + name + " "
-                    + std::to_string(j.at("fov").get<float>());
+        // The one node we don't allocate: graphics.cpp draws through the global
+        // `camera`, so the scene file only places it. Returning it here still
+        // gets it into `parents`, which Compose() requires — see Camera::Compose.
+        camera.FOV = j.value("fov", camera.FOV);
+        camera.transform = transform;
+        node = &camera;
     }
     else if (type == "pivot")
     {
-        node = new Mesh(makeObj("assets/engine_assets/pivot/pivot.obj",
-                                "assets/engine_assets/pivot/pivot.png",
-                                transform, false));
-
-        node->name = type + " "
-                    + name;
+        node = new Object(transform); // a bare pivot / attachment point
     }
     else
     {
@@ -115,6 +84,7 @@ static Object* buildNode(const json& j)
         return nullptr;
     }
 
+    node->name = name;
     node->transform = transform;
     node->world = transform.matrix();
 
@@ -154,106 +124,7 @@ void importScene(const char* path)
         // partly built is fine: whatever loaded still draws.
         fprintf(stderr, "importScene: '%s': %s\n", path, e.what());
     }
-}
-
-
-// Inverse of buildNode(): buildNode packs every field that isn't a live
-// transform into `name` (space-separated: type, display name, then the
-// type's fixed fields) purely so it can be recovered here. Splitting on
-// whitespace and taking the last K tokens as the fixed fields — with
-// whatever sits between the type and them as the display name — undoes
-// that packing.
-static json objectToJson(Object* node)
-{
-    std::vector<std::string> tokens;
-    { std::istringstream iss(node->name); std::string tok; while (iss >> tok) tokens.push_back(tok); }
-
-    const std::string type = tokens.empty() ? "object" : tokens[0];
-
-    // Tokens between the type and the last `trailing` fields are the display
-    // name (rejoined with single spaces).
-    auto displayName = [&](size_t trailing) -> std::string
-    {
-        std::string out;
-        for (size_t i = 1; i + trailing < tokens.size(); ++i)
-        {
-            if (!out.empty()) out += " ";
-            out += tokens[i];
-        }
-        return out;
-    };
-
-    json j;
-    j["type"] = type;
-
-    if (type == "light")
-    {
-        j["name"] = displayName(5);
-        j["position"] = { node->transform.x, node->transform.y, node->transform.z };
-        j["color"] = { std::stof(tokens[tokens.size() - 5]),
-                        std::stof(tokens[tokens.size() - 4]),
-                        std::stof(tokens[tokens.size() - 3]) };
-        j["intensity"] = std::stof(tokens[tokens.size() - 2]);
-        j["radius"]    = std::stof(tokens[tokens.size() - 1]);
-        return j; // lights carry no transform/children in the scene format
-    }
-
-    j["transform"] = { node->transform.x, node->transform.y, node->transform.z,
-                        node->transform.yaw, node->transform.pitch, node->transform.scale };
-
-    if (type == "mesh-obj")
-    {
-        j["name"] = displayName(3);
-        j["obj src"]   = tokens[tokens.size() - 3];
-        j["tex src"]   = tokens[tokens.size() - 2];
-        j["isStatic"]  = tokens[tokens.size() - 1] == "1";
-    }
-    else if (type == "mesh-fbx")
-    {
-        j["name"] = displayName(2);
-        j["obj src"] = tokens[tokens.size() - 2];
-        j["tex src"] = tokens[tokens.size() - 1];
-    }
-    else if (type == "camera")
-    {
-        j["name"] = displayName(1);
-        j["fov"]  = std::stof(tokens[tokens.size() - 1]);
-    }
-    else // pivot, or anything else with no packed fields
-    {
-        j["name"] = displayName(0);
-    }
-
-    j["children"] = json::array();
-    for (Object* child : node->children)
-        j["children"].push_back(objectToJson(child));
-
-    return j;
-}
-
-
-void exportScene(const char* path)
-{
-    json scene;
-    scene["scene"] = json::array();
-
-    for (Object* node : parents)
-    {
-        // The live fly-camera sits in `parents` for Compose()/raycast bookkeeping
-        // only — it isn't scene data (the "camera" *type* above is a placed gizmo
-        // built by buildNode, a different object entirely).
-        if (node == &camera) continue;
-
-        scene["scene"].push_back(objectToJson(node));
-    }
-
-    std::ofstream file(path);
-    if (!file)
-    {
-        fprintf(stderr, "exportScene: could not open '%s' for writing\n", path);
-        return;
-    }
-    file << scene.dump(4);
+    
 }
 
 
@@ -266,17 +137,11 @@ void mouseCallback(GLFWwindow*, double xpos, double ypos)
     lastX = float(xpos);
     lastY = float(ypos);
 
-    if (curElement && rightHeld)
-    {
-        *curElement += xoffset * editMultiplier;
-        *curElement += yoffset * editMultiplier;
-    } else {
-        camera.transform.yaw -= xoffset * sensitivity;
-        camera.transform.pitch -= yoffset * sensitivity;
+    camera.transform.yaw -= xoffset * sensitivity;
+    camera.transform.pitch -= yoffset * sensitivity;
 
-        if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
-        if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
-    }
+    if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
+    if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
 }
 
 

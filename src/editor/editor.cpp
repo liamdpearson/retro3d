@@ -1,4 +1,4 @@
-#include "scene_editor.hpp"
+#include "editor.hpp"
 
 using json = nlohmann::json;
 
@@ -23,21 +23,25 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         curElement = &(curObject->transform.z);
         editMultiplier = 0.05f;
     }
-    else if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+    else if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
         curElement = &(curObject->transform.yaw);
         editMultiplier = 1.0f;
     }
-    else if (key == GLFW_KEY_F && action == GLFW_PRESS) {
+    else if (key == GLFW_KEY_P && action == GLFW_PRESS) {
         curElement = &(curObject->transform.pitch);
         editMultiplier = 1.0f;
     }
-    else if (key == GLFW_KEY_S && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.scale);
-        editMultiplier = 0.1f;
+    else if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+        curElement = &(curObject->transform.roll);
+        editMultiplier = 1.0f;
     }
-
-    else if (key == GLFW_KEY_P && action == GLFW_PRESS) {
-        exportScene("scene.json");
+    else if (key == GLFW_KEY_S && action == GLFW_PRESS) {
+        if (ctrlHeld) {
+            exportScene("scene.json");
+        } else {
+            curElement = &(curObject->transform.scale);
+            editMultiplier = 0.1f;
+        }
     }
 }
 
@@ -99,6 +103,8 @@ int main()
         }
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)        camera.transform.y += speed;
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)   camera.transform.y -= speed;
+        
+        ctrlHeld = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) ? true : false;
 
         // Compose first: this refreshes every `world` in the graph and lets the
         // camera derive its pos/front, which clearBG() reads to build `view`.

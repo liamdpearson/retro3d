@@ -42,6 +42,7 @@ struct Transform
     float z = 0.0f;
     float yaw = 0.0f;
     float pitch = 0.0f;
+    float roll = 0.0f;
     // Defaults to 1, never 0: a default-constructed node is an identity pivot.
     // A zero here silently collapses every descendant to a point.
     float scale = 1.0f;
@@ -54,6 +55,7 @@ struct Transform
         m = glm::translate(m, glm::vec3(x, y, z));
         m = glm::rotate(m, glm::radians(yaw),   glm::vec3(0, 1, 0));
         m = glm::rotate(m, glm::radians(pitch), glm::vec3(-1, 0, 0));
+        m = glm::rotate(m, glm::radians(roll), glm::vec3(0, 0, 1));
         m = glm::scale(m, glm::vec3(scale));
         return m;
     }
@@ -62,13 +64,14 @@ struct Transform
     {
         return (x == other.x && y == other.y && z == other.z
                 && yaw == other.yaw && pitch == other.pitch
-                && scale == other.scale);
+                && roll == other.roll && scale == other.scale);
     }
 
     void operator+(const Transform& other)
     {
         x += other.x; y += other.y; z += other.z;
-        yaw += other.yaw; pitch += other.pitch; scale += other.scale;
+        yaw += other.yaw; pitch += other.pitch; 
+        roll += other.roll; scale += other.scale;
     }
     
     Transform& operator=(const Transform&) = default;
@@ -183,7 +186,7 @@ struct Mesh : Object
 
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
-    int currentAnim = 0;   // index into `animations` of the clip currently playing
+    int currentAnim = -1;   // index into `animations` of the clip currently playing
     float animTime = 0.0f; // seconds into the current clip added to each frame
 
     Mesh() = default;
