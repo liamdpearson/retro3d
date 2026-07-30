@@ -472,34 +472,89 @@ bool loadFBX(const char* path,
 
     ufbx_free_scene(scene);
     return true;
-}   
+}
 
 
-Mesh makeObj(const char* objPath, const char* texPath,
-             Transform transform, bool isLight)
+Mesh makeMesh(const char* objPath, const char* texPath,
+              Transform transform)
 {
     Mesh obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
-    obj.isLight = isLight;
     obj.transform = transform;
     obj.world = transform.matrix();
     obj.texture = loadTexture(texPath);
     obj.indexCount = (GLsizei)obj.indices.size();
+
+    return obj;
+}
+
+
+LightMesh makeLightMesh(const char* objPath, const char* texPath,
+                      Transform transform, glm::vec3 color,
+                      float intensity, float radius)
+{
+    LightMesh obj;
+    loadOBJ(objPath, obj.vertices, obj.indices);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.color = color;
+    obj.intensity = intensity;
+    obj.radius = radius;
     
     return obj;
 }
 
 
-// always dynamic because fbxs are for animations in my case
-Mesh makeFbx(const char* objPath, const char* texPath,
-             Transform transform)
+CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
+                          Transform transform, float FOV)
 {
-    Mesh obj;
+    CameraMesh obj;
+    loadOBJ(objPath, obj.vertices, obj.indices);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.FOV = FOV;
+    
+    return obj;
+}
+
+
+ObjMesh makeObj(const char* objPath, const char* texPath,
+             Transform transform, bool isStatic)
+{
+    ObjMesh obj;
+    loadOBJ(objPath, obj.vertices, obj.indices);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.isStatic = isStatic;
+    obj.objSrc = objPath;
+    obj.texSrc = texPath;
+    
+    return obj;
+}
+
+
+FbxMesh makeFbx(const char* objPath, const char* texPath,
+             Transform transform, bool isStatic)
+{
+    FbxMesh obj;
     loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
     obj.transform = transform;
     obj.world = transform.matrix();
     obj.texture = loadTexture(texPath);
     obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.isStatic = isStatic;
+    obj.objSrc = objPath;
+    obj.texSrc = texPath;
 
     return obj;
 }
@@ -851,16 +906,17 @@ void drawObj(Mesh& obj)
     // Static meshes already carry their lighting per-vertex. Movers get one value
     // sampled at their world origin — column 3 of the world matrix is its
     // translation, which is the object's origin without needing to decompose.
-    if (!obj.isLight)
+    if (obj.isLight())
     {
-        glUniform1i(lightModeLoc, 0);
-    }
-    else
-    {
-        glm::vec3 lit = obj.lit;
+        auto& light = dynamic_cast<LightMesh&>(obj);
+        glm::vec3 lit = light.color;
 
         glUniform3fv(objectLightLoc, 1, glm::value_ptr(lit));
         glUniform1i(lightModeLoc, 1);
+    }
+    else
+    {
+        glUniform1i(lightModeLoc, 0);
     }
 
     // Skinned meshes advance their clip and upload a fresh bone palette. Unskinned

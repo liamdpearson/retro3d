@@ -163,9 +163,6 @@ struct Mesh : Object
     unsigned int texture = 0;
     GLsizei indexCount = 0;
 
-    bool isLight = false;
-    glm::vec3 lit{1.0f, 1.0f, 1.0f};
-
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
     int currentAnim = -1;   // index into `animations` of the clip currently playing
@@ -185,7 +182,41 @@ struct Mesh : Object
     void SetAnimation(int index);
     bool SetAnimation(const std::string& name);
 
+    virtual bool isLight() const { return false; }
+
     ~Mesh() override;
+};
+
+
+struct LightMesh : Mesh
+{
+    glm::vec3 color{1.0f};
+    float intensity;
+    float radius;
+
+    bool isLight() const override { return true; }
+};
+
+
+struct CameraMesh : Mesh
+{
+    float FOV;
+};
+
+
+struct ObjMesh : Mesh
+{
+    bool isStatic;
+    std::string objSrc;
+    std::string texSrc;
+};
+
+
+struct FbxMesh : Mesh
+{
+    bool isStatic;
+    std::string objSrc;
+    std::string texSrc;
 };
 
 
@@ -307,12 +338,22 @@ bool loadFBX(const char* path,
              Skeleton& outSkel,
              std::vector<Animation>& outAnims);
 
-Mesh makeObj(const char* objPath, const char* texPath,
+Mesh makeMesh(const char* objPath, const char* texPath,
+              Transform transform);
+
+LightMesh makeLightMesh(const char* objPath, const char* texPath,
+                      Transform transform, glm::vec3 color,
+                      float intensity, float radius);
+
+CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
+                          Transform transform, float FOV);
+
+ObjMesh makeObj(const char* objPath, const char* texPath,
              Transform Transform, bool isStatic);
 
 // for animated objects
-Mesh makeFbx(const char* objPath, const char* texPath,
-             Transform Transform);
+FbxMesh makeFbx(const char* objPath, const char* texPath,
+             Transform Transform, bool isStatic);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 

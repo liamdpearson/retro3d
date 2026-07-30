@@ -35,18 +35,18 @@ static Object* buildNode(const json& j)
         const json& p = j.at("position");
         const json& c = j.at("color");
 
-        Mesh* light = new Mesh(makeObj("assets/engine_assets/light/light.obj",
-                                        "assets/engine_assets/light/light.png",
-                                        Transform{p.at(0).get<float>(), p.at(1).get<float>(),
-                                        p.at(2).get<float>(), 0.0f, 0.0f, 1.0f}, false));
+        LightMesh* light = new LightMesh(
+            makeLightMesh(
+                "assets/engine_assets/light/light.obj",
+                "assets/engine_assets/light/light.png",
+                Transform{p.at(0).get<float>(), p.at(1).get<float>(),
+                p.at(2).get<float>(), 0.0f, 0.0f, 1.0f},
+                glm::vec3{c.at(0).get<float>(), c.at(1).get<float>(), c.at(2).get<float>()},
+                j.at("intensity").get<float>(), j.at("radius").get<float>()
+            )
+        );
 
-        light->name = type + " "
-                    + name + " "
-                    + std::to_string(c.at(0).get<float>()) + " "
-                    + std::to_string(c.at(1).get<float>()) + " "
-                    + std::to_string(c.at(2).get<float>()) + " "
-                    + std::to_string(j.at("intensity").get<float>()) + " "
-                    + std::to_string(j.at("radius").get<float>());
+        light->name = name;
                             
         parents.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
@@ -68,46 +68,39 @@ static Object* buildNode(const json& j)
         // C++17 guarantees the returned Mesh is constructed straight into the
         // allocation. Without that elision the temporary's destructor would run
         // and free the GL handles the stored copy still points at.
-        node = new Mesh(makeObj(j.at("obj src").get<std::string>().c_str(),
-                                j.at("tex src").get<std::string>().c_str(),
-                                transform, false));
-
-        node->name = type + " "
-                    + name + " "
-                    + j.at("obj src").get<std::string>() + " "
-                    + j.at("tex src").get<std::string>() + " "
-                    + std::to_string(j.at("isStatic").get<bool>());
+        node = new ObjMesh(
+            makeObj(
+                j.at("obj src").get<std::string>().c_str(),
+                j.at("tex src").get<std::string>().c_str(),
+                transform, j.at("isStatic").get<bool>()
+            )
+        );
     }
     else if (type == "mesh-fbx")
     {
-        node = new Mesh(makeFbx(j.at("obj src").get<std::string>().c_str(),
-                                j.at("tex src").get<std::string>().c_str(),
-                                transform));
-        
-
-        node->name = type + " "
-                    + name + " "
-                    + j.at("obj src").get<std::string>() + " "
-                    + j.at("tex src").get<std::string>();
+        node = new FbxMesh(
+            makeFbx(
+                j.at("obj src").get<std::string>().c_str(),
+                j.at("tex src").get<std::string>().c_str(),
+                transform, j.at("isStatic").get<bool>()
+            )
+        );
     }
     else if (type == "camera")
     {
-        node = new Mesh(makeObj("assets/engine_assets/camera/camera.obj",
-                                "assets/engine_assets/camera/camera.png",
-                                transform, false));
-        
-        node->name = type + " "
-                    + name + " "
-                    + std::to_string(j.at("fov").get<float>());
+        node = new CameraMesh(
+            makeCameraMesh(
+                "assets/engine_assets/camera/camera.obj",
+                "assets/engine_assets/camera/camera.png",
+                transform, j.at("fov").get<float>()
+            )
+        );
     }
     else if (type == "pivot")
     {
-        node = new Mesh(makeObj("assets/engine_assets/pivot/pivot.obj",
+        node = new Mesh(makeMesh("assets/engine_assets/pivot/pivot.obj",
                                 "assets/engine_assets/pivot/pivot.png",
-                                transform, false));
-
-        node->name = type + " "
-                    + name;
+                                transform));
     }
     else
     {
@@ -116,6 +109,7 @@ static Object* buildNode(const json& j)
         return nullptr;
     }
 
+    node->name = name;
     node->transform = transform;
     node->world = transform.matrix();
 
@@ -166,36 +160,16 @@ void importScene(const char* path)
 // that packing.
 static json objectToJson(Object* node)
 {
-    std::vector<std::string> tokens;
-    { std::istringstream iss(node->name); std::string tok; while (iss >> tok) tokens.push_back(tok); }
-
-    const std::string type = tokens.empty() ? "object" : tokens[0];
-
-    // Tokens between the type and the last `trailing` fields are the display
-    // name (rejoined with single spaces).
-    auto displayName = [&](size_t trailing) -> std::string
-    {
-        std::string out;
-        for (size_t i = 1; i + trailing < tokens.size(); ++i)
-        {
-            if (!out.empty()) out += " ";
-            out += tokens[i];
-        }
-        return out;
-    };
-
     json j;
-    j["type"] = type;
 
-    if (type == "light")
+    if (LightMesh* light = dynamic_cast<LightMesh*>(node))
     {
-        j["name"] = displayName(5);
-        j["position"] = { node->transform.x, node->transform.y, node->transform.z };
-        j["color"] = { std::stof(tokens[tokens.size() - 5]),
-                        std::stof(tokens[tokens.size() - 4]),
-                        std::stof(tokens[tokens.size() - 3]) };
-        j["intensity"] = std::stof(tokens[tokens.size() - 2]);
-        j["radius"]    = std::stof(tokens[tokens.size() - 1]);
+        j["name"]      = light->name;
+        j["position"]  = { light->transform.x, light->transform.y, light->transform.z };
+        j["color"]     = { light->color.x, light->color.y, light->color.z };
+        j["intensity"] = light->intensity;
+        j["radius"]    = light->radius;
+        j["type"]      = "light";
         return j; // lights carry no transform/children in the scene format
     }
 
@@ -203,27 +177,32 @@ static json objectToJson(Object* node)
                        node->transform.yaw, node->transform.pitch, node->transform.roll,
                        node->transform.scale };
 
-    if (type == "mesh-obj")
+    if (ObjMesh* obj = dynamic_cast<ObjMesh*>(node))
     {
-        j["name"] = displayName(3);
-        j["obj src"]   = tokens[tokens.size() - 3];
-        j["tex src"]   = tokens[tokens.size() - 2];
-        j["isStatic"]  = tokens[tokens.size() - 1] == "1";
+        j["name"]      = obj->name;
+        j["obj src"]   = obj->objSrc;
+        j["tex src"]   = obj->texSrc;
+        j["isStatic"]  = obj->isStatic;
+        j["type"]      = "mesh-obj";
     }
-    else if (type == "mesh-fbx")
+    else if (FbxMesh* fbx = dynamic_cast<FbxMesh*>(node))
     {
-        j["name"] = displayName(2);
-        j["obj src"] = tokens[tokens.size() - 2];
-        j["tex src"] = tokens[tokens.size() - 1];
+        j["name"]      = fbx->name;
+        j["obj src"]   = fbx->objSrc;
+        j["tex src"]   = fbx->texSrc;
+        j["isStatic"]  = fbx->isStatic;
+        j["type"]      = "mesh-fbx";
     }
-    else if (type == "camera")
+    else if (CameraMesh* cam = dynamic_cast<CameraMesh*>(node))
     {
-        j["name"] = displayName(1);
-        j["fov"]  = std::stof(tokens[tokens.size() - 1]);
+        j["name"] = cam->name;
+        j["fov"]  = cam->FOV;
+        j["type"] = "camera";
     }
     else // pivot, or anything else with no packed fields
     {
-        j["name"] = displayName(0);
+        j["name"] = node->name;
+        j["type"] = "pivot";
     }
 
     j["children"] = json::array();

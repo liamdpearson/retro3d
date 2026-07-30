@@ -140,6 +140,7 @@ int main()
                                 + "Z: " + std::to_string(curObject->transform.z) + '\n'
                                 + "Yaw: " + std::to_string(curObject->transform.yaw) + '\n'
                                 + "Pitch: " + std::to_string(curObject->transform.pitch) + '\n'
+                                + "Roll: " + std::to_string(curObject->transform.roll) + '\n'
                                 + "Scale: " + std::to_string(curObject->transform.scale);
         } else {
             curObjectLabel.text = "Selected: none";
