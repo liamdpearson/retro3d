@@ -20,7 +20,7 @@ std::vector<UIElement*> uiElements;
 //
 // Nodes are heap-allocated because `parents`/`children` hold Object*, so they
 // have to outlive this call.
-static Object* buildNode(const json& j)
+static Object* buildNode(const json& j, Object* parent)
 {
     const std::string type = j.value("type", "object");
     const std::string name = j.value("name", ""); 
@@ -85,12 +85,13 @@ static Object* buildNode(const json& j)
     }
 
     node->name = name;
+    node->parent = parent;
     node->transform = transform;
     node->world = transform.matrix();
 
     for (const json& child : j.value("children", json::array()))
     {
-        Object* c = buildNode(child);
+        Object* c = buildNode(child, node);
         if (c) node->children.push_back(c);
     }
 
@@ -114,7 +115,7 @@ void importScene(const char* path)
 
         for (const json& node : scene.at("scene"))
         {
-            Object* obj = buildNode(node);
+            Object* obj = buildNode(node, nullptr);
             if (obj) parents.push_back(obj);
         }
     }

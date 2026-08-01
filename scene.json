@@ -52,6 +52,38 @@
         {
             "children": [
                 {
+                    "children": [],
+                    "isStatic": false,
+                    "name": "gun",
+                    "obj src": "assets/gun/gun.obj",
+                    "tex src": "assets/gun/gun.png",
+                    "transform": [
+                        0.0,
+                        0.0,
+                        -1.1000027656555176,
+                        -90.0,
+                        0.0,
+                        0.0,
+                        3.599999189376831
+                    ],
+                    "type": "mesh-obj"
+                }
+            ],
+            "name": "pivot1",
+            "transform": [
+                1.1500053405761719,
+                -0.9500003457069397,
+                -0.5500003695487976,
+                92.0,
+                270.0,
+                81.0,
+                2.1999988555908203
+            ],
+            "type": "pivot"
+        },
+        {
+            "children": [
+                {
                     "children": [
                         {
                             "children": [],

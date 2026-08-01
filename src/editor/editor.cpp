@@ -3,12 +3,6 @@
 using json = nlohmann::json;
 
 
-static void removeChild(std::vector<Object*>& children, const Object* child)
-{
-    children.erase(std::remove(children.begin(), children.end(), child), children.end());
-}
-
-
 static void handleLightInput(int key, LightMesh*& light) {
     switch (key)
     {
@@ -101,13 +95,33 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 {
     if (action != GLFW_PRESS) return;
 
-    if (key == GLFW_KEY_S && ctrlHeld) {
-        exportScene("scene.json");
-        return;
+    if (ctrlHeld) {
+        switch (key)
+        {
+            case GLFW_KEY_S:
+                exportScene("scene.json");
+                return;
+
+            case GLFW_KEY_C:
+                copiedObject = curObject;
+                return;
+
+            case GLFW_KEY_V:
+                addObject(copiedObject, curObject);
+                return;
+        }
+        
     }
+
+    
 
     if (curObject)
     {
+        if (key == GLFW_KEY_DELETE) {
+            removeObject(curObject);
+            return;
+        }
+
         if (curObject->isLight()) {
             LightMesh* light = static_cast<LightMesh*>(curObject);
             handleLightInput(key, light);

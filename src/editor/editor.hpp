@@ -12,12 +12,108 @@ Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
 
 std::vector<Object*> parents;
 std::vector<UIElement*> uiElements;
+std::vector<std::vector<Object>> oldParents;
 Object* curObject = nullptr;
+Object* copiedObject = nullptr;
 float* curElement = nullptr;
 float editMultiplier = 1.0f;
 bool rightHeld = false;
 bool ctrlHeld = false;
 const int HIERARCHYMARGIN = 3;
+
+
+static void deleteSubtree(Object* obj)
+{
+    for (Object* child : obj->children) deleteSubtree(child);
+    delete obj;
+}
+
+
+void removeObject(Object*& obj)
+{
+    std::vector<Object*>& siblings = obj->parent ? obj->parent->children : parents;
+    auto it = std::find(siblings.begin(), siblings.end(), obj);
+    if (it != siblings.end()) siblings.erase(it);
+    deleteSubtree(obj);
+    obj = nullptr;
+}
+
+
+// Deep-clones one node (not its siblings). Reconstructs the concrete subtype
+// via copy construction so type-specific fields (color/intensity/radius,
+// objSrc/texSrc/isStatic, FOV...) come along, then gives the clone its own
+// independent GL handles — sharing a VAO/texture with the original would
+// double-free it the first time either copy is deleted. `children` is cloned
+// recursively rather than copied, since the compiler-generated copy
+// constructor would otherwise alias the original's child Object* pointers.
+static Object* cloneNode(Object* src, Object* parent)
+{
+    Object* clone = nullptr;
+
+    if (LightMesh* light = dynamic_cast<LightMesh*>(src))
+    {
+        LightMesh* c = new LightMesh(*light);
+        c->VAO = c->VBO = c->EBO = 0;
+        c->texture = loadTexture("assets/engine_assets/light/light.png");
+        clone = c;
+    }
+    else if (CameraMesh* cam = dynamic_cast<CameraMesh*>(src))
+    {
+        CameraMesh* c = new CameraMesh(*cam);
+        c->VAO = c->VBO = c->EBO = 0;
+        c->texture = loadTexture("assets/engine_assets/camera/camera.png");
+        clone = c;
+    }
+    else if (ObjMesh* obj = dynamic_cast<ObjMesh*>(src))
+    {
+        ObjMesh* c = new ObjMesh(*obj);
+        c->VAO = c->VBO = c->EBO = 0;
+        c->texture = loadTexture(obj->texSrc.c_str());
+        clone = c;
+    }
+    else if (FbxMesh* fbx = dynamic_cast<FbxMesh*>(src))
+    {
+        FbxMesh* c = new FbxMesh(*fbx);
+        c->VAO = c->VBO = c->EBO = 0;
+        c->texture = loadTexture(fbx->texSrc.c_str());
+        clone = c;
+    }
+    else if (Mesh* mesh = dynamic_cast<Mesh*>(src)) // pivot
+    {
+        Mesh* c = new Mesh(*mesh);
+        c->VAO = c->VBO = c->EBO = 0;
+        c->texture = loadTexture("assets/engine_assets/pivot/pivot.png");
+        clone = c;
+    }
+    else
+    {
+        clone = new Object(*src);
+    }
+
+    clone->parent = parent;
+    clone->children.clear();
+    for (Object* child : src->children)
+        clone->children.push_back(cloneNode(child, clone));
+
+    return clone;
+}
+
+
+// Clones `copied`'s subtree and inserts it as a sibling immediately after
+// `current`, in whichever list `current` actually lives in (its parent's
+// `children`, or `parents` for a root/light).
+void addObject(Object*& copied, Object*& current)
+{
+    if (!copied || !current) return;
+
+    std::vector<Object*>& siblings = current->parent ? current->parent->children : parents;
+    auto it = std::find(siblings.begin(), siblings.end(), current);
+    if (it == siblings.end()) return;
+
+    Object* clone = cloneNode(copied, current->parent);
+    siblings.insert(it + 1, clone);
+    clone->Upload();
+}
 
 
 // Initializes one object (and its subtree) from a scene.json entry. Returns the
@@ -26,7 +122,7 @@ const int HIERARCHYMARGIN = 3;
 //
 // Nodes are heap-allocated because `parents`/`children` hold Object*, so they
 // have to outlive this call.
-static Object* buildNode(const json& j)
+static Object* buildNode(const json& j, Object* parent)
 {
     const std::string type = j.value("type", "object"); 
     const std::string name = j.value("name", ""); 
@@ -101,8 +197,8 @@ static Object* buildNode(const json& j)
     else if (type == "pivot")
     {
         node = new Mesh(makeMesh("assets/engine_assets/pivot/pivot.obj",
-                                "assets/engine_assets/pivot/pivot.png",
-                                transform));
+                                 "assets/engine_assets/pivot/pivot.png",
+                                 transform));
     }
     else
     {
@@ -110,15 +206,16 @@ static Object* buildNode(const json& j)
                 name.c_str(), type.c_str());
         return nullptr;
     }
-
+    
     node->name = name;
     node->type = type;
+    node->parent = parent;
     node->transform = transform;
     node->world = transform.matrix();
 
     for (const json& child : j.value("children", json::array()))
     {
-        Object* c = buildNode(child);
+        Object* c = buildNode(child, node);
         if (c) node->children.push_back(c);
     }
 
@@ -142,7 +239,7 @@ void importScene(const char* path)
 
         for (const json& node : scene.at("scene"))
         {
-            Object* obj = buildNode(node);
+            Object* obj = buildNode(node, nullptr);
             if (obj) parents.push_back(obj);
         }
     }

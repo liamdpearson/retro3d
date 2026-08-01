@@ -138,6 +138,7 @@ struct Object
     // and preserves any roll produced by composing rotated parents and children.
     glm::mat4 world = glm::mat4(1.0f);
     std::vector<Object*> children = {};
+    Object* parent = nullptr;
 
 
     Object() = default;
