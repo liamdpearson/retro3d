@@ -9,38 +9,110 @@ static void removeChild(std::vector<Object*>& children, const Object* child)
 }
 
 
+static void handleLightInput(int key, LightMesh*& light) {
+    switch (key)
+    {
+        case GLFW_KEY_1:
+            curElement = &light->transform.x;
+            editMultiplier = 0.05f;
+            return;
+        
+        case GLFW_KEY_2:
+            curElement = &light->transform.y;
+            editMultiplier = 0.05f;
+            return;
+        
+        case GLFW_KEY_3:
+            curElement = &light->transform.z;
+            editMultiplier = 0.05f;
+            return;
+
+        case GLFW_KEY_4:
+            curElement = &light->color.r;
+            editMultiplier = 0.0015f;
+            return;
+        
+        case GLFW_KEY_5:
+            curElement = &light->color.g;
+            editMultiplier = 0.0015f;
+            return;
+        
+        case GLFW_KEY_6:
+            curElement = &light->color.b;
+            editMultiplier = 0.0015f;
+            return;
+        
+        case GLFW_KEY_7:
+            curElement = &light->intensity;
+            editMultiplier = 0.05f;
+            return;
+
+        case GLFW_KEY_8:
+            curElement = &light->radius;
+            editMultiplier = 0.05f;
+            return;
+    }
+}
+
+
+static void handleOtherInput(int key) {
+    switch (key)
+    {
+        case GLFW_KEY_1:
+            curElement = &curObject->transform.x;
+            editMultiplier = 0.05f;
+            return;
+        
+        case GLFW_KEY_2:
+            curElement = &curObject->transform.y;
+            editMultiplier = 0.05f;
+            return;
+        
+        case GLFW_KEY_3:
+            curElement = &curObject->transform.z;
+            editMultiplier = 0.05f;
+            return;
+
+        case GLFW_KEY_4:
+            curElement = &curObject->transform.yaw;
+            editMultiplier = 1.0f;
+            return;
+        
+        case GLFW_KEY_5:
+            curElement = &curObject->transform.pitch;
+            editMultiplier = 1.0f;
+            return;
+        
+        case GLFW_KEY_6:
+            curElement = &curObject->transform.roll;
+            editMultiplier = 1.0f;
+            return;
+        
+        case GLFW_KEY_7:
+            curElement = &curObject->transform.scale;
+            editMultiplier = 0.05f;
+            return;
+    }
+}
+
+
+
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.x);
-        editMultiplier = 0.05f;
+    if (action != GLFW_PRESS) return;
+
+    if (key == GLFW_KEY_S && ctrlHeld) {
+        exportScene("scene.json");
+        return;
     }
-    else if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.y);
-        editMultiplier = 0.05f;
-    }
-    else if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.z);
-        editMultiplier = 0.05f;
-    }
-    else if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.yaw);
-        editMultiplier = 1.0f;
-    }
-    else if (key == GLFW_KEY_P && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.pitch);
-        editMultiplier = 1.0f;
-    }
-    else if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-        curElement = &(curObject->transform.roll);
-        editMultiplier = 1.0f;
-    }
-    else if (key == GLFW_KEY_S && action == GLFW_PRESS) {
-        if (ctrlHeld) {
-            exportScene("scene.json");
+
+    if (curObject)
+    {
+        if (curObject->isLight()) {
+            LightMesh* light = static_cast<LightMesh*>(curObject);
+            handleLightInput(key, light);
         } else {
-            curElement = &(curObject->transform.scale);
-            editMultiplier = 0.1f;
+            handleOtherInput(key);
         }
     }
 }
@@ -60,8 +132,12 @@ int main()
     UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
     uiElements.push_back(&crosshair);
 
-    Font uiFont = bakeFont("assets/arial.ttf", 48.0f);
-    UIText curObjectLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1} };
+    Font uiFont = bakeFont("assets/terminal.ttf", 48.0f);
+
+    UIText hierarchyLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1}, true };
+    uploadUIText(hierarchyLabel);
+
+    UIText curObjectLabel{ {SW - 20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1}, false };
     uploadUIText(curObjectLabel);
 
     for (Object*& obj : parents) obj->Upload();
@@ -89,7 +165,7 @@ int main()
             camera.transform.x -= speed * sin(glm::radians(camera.transform.yaw));
             camera.transform.z -= speed * cos(glm::radians(camera.transform.yaw));
         }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS && !ctrlHeld) {
             camera.transform.x += speed * sin(glm::radians(camera.transform.yaw));
             camera.transform.z += speed * cos(glm::radians(camera.transform.yaw));
         }
@@ -106,6 +182,17 @@ int main()
         
         ctrlHeld = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) ? true : false;
 
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
+        {
+            curObject = raycast(camera.pos, camera.front, 100.0f);
+            curElement = nullptr;
+        }
+        rightHeld = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
+                     ? true : false;
+
+    
+
+
         // Compose first: this refreshes every `world` in the graph and lets the
         // camera derive its pos/front, which clearBG() reads to build `view`.
         // Draw only after both, or the view matrix lags the scene by a frame.
@@ -114,14 +201,6 @@ int main()
             obj->world = obj->transform.matrix();
             obj->Compose();
         }
-
-        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS)
-        {
-            curObject = raycast(camera.pos, camera.front, 100.0f);
-            curElement = nullptr;
-        }
-        rightHeld = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS)
-                     ? true : false;
 
 
         clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
@@ -134,18 +213,40 @@ int main()
 
         if (curObject)
         {
-            curObjectLabel.text = "Selected: " + curObject->name + '\n'
-                                + "X: " + std::to_string(curObject->transform.x) + '\n'
-                                + "Y: " + std::to_string(curObject->transform.y) + '\n'
-                                + "Z: " + std::to_string(curObject->transform.z) + '\n'
-                                + "Yaw: " + std::to_string(curObject->transform.yaw) + '\n'
-                                + "Pitch: " + std::to_string(curObject->transform.pitch) + '\n'
-                                + "Roll: " + std::to_string(curObject->transform.roll) + '\n'
-                                + "Scale: " + std::to_string(curObject->transform.scale);
+            curObjectLabel.text = "Selected: " + curObject->name
+                              + "\nType: " + curObject->type
+                            + "\n\nX: " + std::to_string(curObject->transform.x) + "\n"
+                                + "Y: " + std::to_string(curObject->transform.y) + "\n"
+                                + "Z: " + std::to_string(curObject->transform.z) + "\n\n";
+            if (curObject->isLight())
+            {
+                LightMesh* light = static_cast<LightMesh*>(curObject);
+
+                if (light->color.r > 1.0f) light->color.r = 1.0f;
+                if (light->color.g > 1.0f) light->color.g = 1.0f;
+                if (light->color.b > 1.0f) light->color.b = 1.0f;
+                if (light->color.r < 0.0f) light->color.r = 0.0f;
+                if (light->color.g < 0.0f) light->color.g = 0.0f;
+                if (light->color.b < 0.0f) light->color.b = 0.0f;
+                
+                curObjectLabel.text +="R: " + std::to_string(light->color.r) + "\n"
+                                    + "G: " + std::to_string(light->color.g) + "\n"
+                                    + "B: " + std::to_string(light->color.b) + "\n\n"
+                                    + "Intensity: " + std::to_string(light->intensity) + "\n"
+                                    + "Radius: " + std::to_string(light->radius);
+            } else {
+                curObjectLabel.text +=  "Yaw: " + std::to_string(curObject->transform.yaw) + "\n"
+                                    + "Pitch: " + std::to_string(curObject->transform.pitch) + "\n"
+                                    +  "Roll: " + std::to_string(curObject->transform.roll) + "\n\n"
+                                    + "Scale: " + std::to_string(curObject->transform.scale);
+            }                  
         } else {
             curObjectLabel.text = "Selected: none";
         }
         drawText(curObjectLabel);
+
+        hierarchyLabel.text = buildHierarchyString();
+        drawText(hierarchyLabel);
 
         endUI();
 

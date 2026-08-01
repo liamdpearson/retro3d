@@ -17,6 +17,7 @@ float* curElement = nullptr;
 float editMultiplier = 1.0f;
 bool rightHeld = false;
 bool ctrlHeld = false;
+const int HIERARCHYMARGIN = 3;
 
 
 // Initializes one object (and its subtree) from a scene.json entry. Returns the
@@ -47,6 +48,7 @@ static Object* buildNode(const json& j)
         );
 
         light->name = name;
+        light->type = type;
                             
         parents.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
@@ -110,6 +112,7 @@ static Object* buildNode(const json& j)
     }
 
     node->name = name;
+    node->type = type;
     node->transform = transform;
     node->world = transform.matrix();
 
@@ -235,6 +238,30 @@ void exportScene(const char* path)
         return;
     }
     file << scene.dump(4);
+}
+
+
+void appendName(std::string& hierarchy, int margin, Object*& obj)
+{
+    for (int i = 0; i < margin; i++) hierarchy += " ";
+    hierarchy = hierarchy + obj->name + '\n';
+
+    for (Object*& child : obj->children)
+    {
+        appendName(hierarchy, margin + HIERARCHYMARGIN, child);
+    }
+}
+
+
+std::string buildHierarchyString()
+{
+    std::string hierarchy = "Scene Hierarchy:\n\n";
+    for (Object*& obj : parents)
+    {
+        appendName(hierarchy, 0, obj);
+    }
+
+    return hierarchy;
 }
 
 

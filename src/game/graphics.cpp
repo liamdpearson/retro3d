@@ -997,12 +997,38 @@ void layoutText(UIText& t)
 
     const Font& f = *t.font;
     float s = t.size / f.bakePixelHeight;   // <-- treat size as a pixel height
-    float penX = t.pos.x;
     float baseY = t.pos.y + f.ascent * s;   // baseline sits `ascent` below the top
 
-    for (unsigned char ch : t.text)
+    // Sums xadvance over [begin, end) to get a line's total width, so a
+    // right-anchored line can start far enough left to end at t.pos.x.
+    auto lineWidth = [&](size_t begin, size_t end) {
+        float w = 0.0f;
+        for (size_t i = begin; i < end; i++)
+        {
+            unsigned char ch = t.text[i];
+            if (ch >= 32 && ch <= 126) w += f.glyphs[ch - 32].xadvance * s;
+        }
+        return w;
+    };
+    auto lineStartX = [&](size_t begin) {
+        if (t.anchorLeft) return t.pos.x;
+        size_t end = t.text.find('\n', begin);
+        return t.pos.x - lineWidth(begin, end == std::string::npos ? t.text.size() : end);
+    };
+
+    size_t lineStart = 0;
+    float penX = lineStartX(lineStart);
+
+    for (size_t i = 0; i < t.text.size(); i++)
     {
-        if (ch == '\n') { penX = t.pos.x; baseY += f.lineHeight * s; continue; }
+        unsigned char ch = t.text[i];
+        if (ch == '\n')
+        {
+            baseY += f.lineHeight * s;
+            lineStart = i + 1;
+            penX = lineStartX(lineStart);
+            continue;
+        }
         if (ch < 32 || ch > 126) continue;   // outside the baked range
 
         const Glyph& g = f.glyphs[ch - 32];

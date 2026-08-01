@@ -117,6 +117,7 @@ struct Animation
 struct Object
 {
     std::string name;
+    std::string type;
 
     Transform transform; // local transform
 
@@ -147,6 +148,8 @@ struct Object
     // hit distance and `hit` the object at it — see the free raycast() below.
     virtual void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                          float& closest, Object*& hit);
+
+    virtual bool isLight() const { return false; }
 
     // Virtual so deleting a Mesh through an Object* still frees its GL handles.
     virtual ~Object() = default;
@@ -181,8 +184,6 @@ struct Mesh : Object
     // from its first frame. The string form returns false if no clip matches.
     void SetAnimation(int index);
     bool SetAnimation(const std::string& name);
-
-    virtual bool isLight() const { return false; }
 
     ~Mesh() override;
 };
@@ -288,6 +289,7 @@ struct UIText
     std::string text;
     Font*       font = nullptr;
     glm::vec3   color = glm::vec3(1.0f);
+    bool        anchorLeft = true;
 
     // Rebuilt each frame by layoutText(); one call for the whole stirng.
     std::vector<float>        vertices;

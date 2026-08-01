@@ -278,6 +278,7 @@ struct UIText
     std::string text;
     Font*       font = nullptr;
     glm::vec3   color = glm::vec3(1.0f);
+    bool        anchorLeft = true;
 
     // Rebuilt each frame by layoutText(); one call for the whole stirng.
     std::vector<float>        vertices;
