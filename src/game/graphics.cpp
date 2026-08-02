@@ -32,6 +32,7 @@ int lightModeLoc, objectLightLoc, textModeLoc;
 float lightAmbient = 0.2f;
 
 std::vector<Tri> occluders;
+std::vector<Tri> colliders;
 std::vector<glm::vec3> lightGrid;
 
 // for finding the bounds box of the scene for light grid
@@ -485,11 +486,12 @@ bool loadFBX(const char* path,
 
 
 Mesh makeObj(const char* objPath, const char* texPath,
-             Transform transform, bool isStatic)
+             Transform transform, bool isStatic, bool collides)
 {
     Mesh obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
     obj.isStatic = isStatic;
+    obj.collides = collides;
     obj.transform = transform;
     obj.world = transform.matrix();
     obj.texture = loadTexture(texPath);
@@ -849,6 +851,229 @@ void bakeSceneLighting()
     }
     
     std::fprintf(stderr, "bake: done in %.2fs\n", glfwGetTime() - start);
+}
+
+
+void Object::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
+{
+    glm::mat4 world = parentWorld * transform.matrix();
+    for (Object*& child : children) child->CollectColliders(world, out);
+}
+
+
+void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
+{
+    glm::mat4 world = parentWorld * transform.matrix();
+
+    if (isStatic && collides)
+    {
+        for (size_t i = 0; i + 2 < indices.size(); i += 3)
+        {
+            Tri t;
+            glm::vec3* corner[3] = { &t.a, &t.b, &t.c };
+            for (int c = 0; c < 3; c++)
+            {
+                size_t v = (size_t)indices[i + c] * VERTEX_FLOATS;
+                glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
+                *corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
+            }
+            out.push_back(t);
+        }
+    }
+
+    Object::CollectColliders(parentWorld, out);
+}
+
+
+void collectSceneColliders()
+{
+    for (Object*& obj : parents) obj->CollectColliders(glm::mat4(1.0f), colliders);
+}
+
+
+// The player's capsule as a box: radius on X/Z, feet to head on Y. Loose on
+// purpose — this is only the broadphase filter, and the capsule test behind it
+// is what decides the real answer.
+static AABB playerBounds(const Player& player)
+{
+    glm::vec3 feet(player.transform.x, player.transform.y, player.transform.z);
+
+    AABB box;
+    box.min = feet - glm::vec3(player.radius, 0.0f, player.radius);
+    box.max = feet + glm::vec3(player.radius, player.height, player.radius);
+    return box;
+}
+
+
+// A triangle's own box: the componentwise min/max of its three corners. Thin to
+// the point of flat for an axis-aligned triangle, which is fine — a zero-extent
+// box still tests correctly.
+//
+// Recomputed per test rather than cached on Tri: it is six min/max ops against a
+// closest-point test an order of magnitude heavier, and a cached field would sit
+// uninitialised on every triangle the occluder pass builds.
+static AABB triBounds(const Tri& t)
+{
+    AABB box;
+    box.min = glm::min(glm::min(t.a, t.b), t.c);
+    box.max = glm::max(glm::max(t.a, t.b), t.c);
+    return box;
+}
+
+
+// Closest point to `p` on the segment ab.
+static glm::vec3 closestPointOnSegment(const glm::vec3& p,
+                                       const glm::vec3& a, const glm::vec3& b)
+{
+    glm::vec3 ab = b - a;
+    float len2 = glm::dot(ab, ab);
+    if (len2 < 1e-12f) return a;   // degenerate segment: both ends are the same point
+
+    return a + ab * glm::clamp(glm::dot(p - a, ab) / len2, 0.0f, 1.0f);
+}
+
+
+// Closest point to `p` on triangle t. The branches walk the triangle's Voronoi
+// regions, so this is correct whether the nearest feature is the face interior,
+// one of the three edges, or one of the three corners — which is exactly the
+// distinction a box test can't make and why it runs second.
+static glm::vec3 closestPointOnTriangle(const glm::vec3& p, const Tri& t)
+{
+    glm::vec3 ab = t.b - t.a, ac = t.c - t.a, ap = p - t.a;
+
+    float d1 = glm::dot(ab, ap), d2 = glm::dot(ac, ap);
+    if (d1 <= 0.0f && d2 <= 0.0f) return t.a;                   // corner A
+
+    glm::vec3 bp = p - t.b;
+    float d3 = glm::dot(ab, bp), d4 = glm::dot(ac, bp);
+    if (d3 >= 0.0f && d4 <= d3) return t.b;                     // corner B
+
+    float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)                 // edge AB
+        return t.a + ab * (d1 / (d1 - d3));
+
+    glm::vec3 cp = p - t.c;
+    float d5 = glm::dot(ab, cp), d6 = glm::dot(ac, cp);
+    if (d6 >= 0.0f && d5 <= d6) return t.c;                     // corner C
+
+    float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)                 // edge AC
+        return t.a + ac * (d2 / (d2 - d6));
+
+    float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)   // edge BC
+        return t.b + (t.c - t.b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+
+    float denom = 1.0f / (va + vb + vc);                        // face interior
+    return t.a + ab * (vb * denom) + ac * (vc * denom);
+}
+
+
+// How floor-like a surface has to be to stand on: the Y component of its normal,
+// so 0.7 is roughly a 45 degree slope. Steeper than that is a wall — the player
+// still slides along it, just never counts as grounded on it.
+static const float GROUND_NORMAL_Y = 0.7f;
+
+
+// Resolve the player against the static collision world.
+//
+// Positional depenetration rather than a swept trace: let the move happen, then
+// push back out of whatever it ended up inside. Sliding falls out for free,
+// because the push is always along the contact normal and so leaves any motion
+// parallel to the surface untouched.
+//
+// Iterated because fixing one contact can push the capsule into another — an
+// inside corner needs two passes to settle — and it stops early on the first
+// pass that finds nothing left to fix, which is the common case.
+void resolvePlayerCollision(Player& player)
+{
+    const int MAX_ITERATIONS = 4;
+    const float radiusSq = player.radius * player.radius;
+
+    player.grounded = false;
+
+    for (int iter = 0; iter < MAX_ITERATIONS; iter++)
+    {
+        // Rebuilt per pass rather than per push: a push inside this pass leaves
+        // the box slightly stale, and the next pass is what picks that up.
+        AABB playerBox = playerBounds(player);
+        playerBox.expand(0.01f);
+
+        bool hitAny = false;
+
+        for (const Tri& t : colliders)
+        {
+            if (!playerBox.overlaps(triBounds(t))) continue;
+
+            glm::vec3 rawNormal = glm::cross(t.b - t.a, t.c - t.a);
+            float normalLenSq = glm::dot(rawNormal, rawNormal);
+            if (normalLenSq < 1e-12f) continue;   // degenerate tri, no surface to push off
+
+            glm::vec3 faceNormal = rawNormal / glm::sqrt(normalLenSq);
+
+            // The capsule's axis: the segment that, swept by `radius`, traces the
+            // capsule exactly — so it is inset by the radius at each cap.
+            glm::vec3 feet(player.transform.x, player.transform.y, player.transform.z);
+            glm::vec3 base = feet + glm::vec3(0.0f, player.radius, 0.0f);
+            glm::vec3 tip  = feet + glm::vec3(0.0f, player.height - player.radius, 0.0f);
+            if (tip.y < base.y) tip = base;   // player wider than tall: degenerate to a sphere
+
+            // Reduce capsule-vs-triangle to sphere-vs-triangle: find where the
+            // axis crosses the triangle's plane, clamp that into the triangle,
+            // then take the point on the axis nearest it as the sphere center.
+            glm::vec3 axis = tip - base;
+            float denom = glm::dot(faceNormal, axis);
+
+            glm::vec3 reference;
+            if (glm::abs(denom) < 1e-6f)
+                reference = t.a;   // axis parallel to the plane; any point on it serves
+            else
+                reference = base + axis * glm::clamp(glm::dot(faceNormal, t.a - base) / denom,
+                                                     0.0f, 1.0f);
+
+            reference = closestPointOnTriangle(reference, t);
+
+            glm::vec3 center  = closestPointOnSegment(reference, base, tip);
+            glm::vec3 contact = closestPointOnTriangle(center, t);
+
+            glm::vec3 delta = center - contact;
+            float distSq = glm::dot(delta, delta);
+            if (distSq >= radiusSq) continue;   // clear of this triangle
+
+            glm::vec3 pushDir;
+            float depth;
+            if (distSq > 1e-12f)
+            {
+                float dist = glm::sqrt(distSq);
+                pushDir = delta / dist;
+                depth   = player.radius - dist;
+            }
+            else
+            {
+                // Center landed exactly on the surface, so `delta` carries no
+                // direction. Fall back to the face normal.
+                pushDir = faceNormal;
+                depth   = player.radius;
+            }
+
+            player.transform.x += pushDir.x * depth;
+            player.transform.y += pushDir.y * depth;
+            player.transform.z += pushDir.z * depth;
+
+            // Cancel only the component of motion heading into the surface —
+            // Quake's ClipVelocity. Tangential motion survives, which is what
+            // makes a player slide along a wall instead of sticking to it. A
+            // no-op while movement writes position directly; it starts mattering
+            // the moment gravity puts something in `velocity`.
+            player.velocity -= pushDir * glm::min(0.0f, glm::dot(player.velocity, pushDir));
+
+            if (pushDir.y > GROUND_NORMAL_Y) player.grounded = true;
+
+            hitAny = true;
+        }
+
+        if (!hitAny) break;
+    }
 }
 
 

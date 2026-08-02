@@ -2,38 +2,39 @@
     "scene": [
         {
             "color": [
-                0.8649986982345581,
-                0.7049998044967651,
-                0.12500089406967163
+                1.0,
+                1.0,
+                1.0
             ],
-            "intensity": 4.549417972564697,
-            "name": "light1",
+            "intensity": 7.5500359535217285,
+            "name": "light2",
             "position": [
-                14.500040054321289,
-                0.3500012457370758,
-                -0.5
+                13.999905586242676,
+                5.549993515014648,
+                -0.0500032864511013
             ],
-            "radius": 42.599945068359375,
+            "radius": 20.000019073486328,
             "type": "light"
         },
         {
             "color": [
-                0.0,
-                0.0,
+                1.0,
+                1.0,
                 1.0
             ],
-            "intensity": 40.149967193603516,
+            "intensity": 7.5500359535217285,
             "name": "light2",
             "position": [
-                -18.449966430664063,
-                3.299999475479126,
-                -10.850008010864258
+                -13.349968910217285,
+                5.300001621246338,
+                6.705522537231445e-08
             ],
-            "radius": 1.8999719619750977,
+            "radius": 20.000019073486328,
             "type": "light"
         },
         {
             "children": [],
+            "collides": true,
             "isStatic": true,
             "name": "level0",
             "obj src": "assets/level0/level0.obj",
@@ -45,106 +46,71 @@
                 0.0,
                 0.0,
                 0.0,
-                1.0
+                0.5499998927116394
             ],
             "type": "mesh-obj"
         },
         {
             "children": [
                 {
-                    "children": [],
-                    "isStatic": false,
-                    "name": "gun",
-                    "obj src": "assets/gun/gun.obj",
-                    "tex src": "assets/gun/gun.png",
-                    "transform": [
-                        0.0,
-                        0.0,
-                        -1.1000027656555176,
-                        -90.0,
-                        0.0,
-                        0.0,
-                        3.599999189376831
-                    ],
-                    "type": "mesh-obj"
-                }
-            ],
-            "name": "pivot1",
-            "transform": [
-                1.1500053405761719,
-                -0.9500003457069397,
-                -0.5500003695487976,
-                92.0,
-                270.0,
-                81.0,
-                2.1999988555908203
-            ],
-            "type": "pivot"
-        },
-        {
-            "children": [
-                {
                     "children": [
                         {
-                            "children": [],
-                            "isStatic": false,
-                            "name": "gun",
-                            "obj src": "assets/gun/gun.obj",
-                            "tex src": "assets/gun/gun.png",
-                            "transform": [
-                                0.0,
-                                0.0,
-                                -1.1000027656555176,
-                                -90.0,
-                                0.0,
-                                0.0,
-                                3.599999189376831
+                            "children": [
+                                {
+                                    "children": [],
+                                    "collides": false,
+                                    "isStatic": false,
+                                    "name": "gun",
+                                    "obj src": "assets/gun/gun.obj",
+                                    "tex src": "assets/gun/gun.png",
+                                    "transform": [
+                                        0.0,
+                                        0.0,
+                                        -1.1000027656555176,
+                                        -90.0,
+                                        0.0,
+                                        0.0,
+                                        3.599999189376831
+                                    ],
+                                    "type": "mesh-obj"
+                                }
                             ],
-                            "type": "mesh-obj"
+                            "name": "pivot1",
+                            "transform": [
+                                0.08500529825687408,
+                                -0.09500017762184143,
+                                -0.1199987381696701,
+                                5.0,
+                                0.0,
+                                0.0,
+                                0.03999987989664078
+                            ],
+                            "type": "pivot"
                         }
                     ],
-                    "name": "pivot1",
-                    "transform": [
-                        1.1500053405761719,
-                        -0.9500003457069397,
-                        -0.5500003695487976,
-                        5.0,
-                        0.0,
-                        0.0,
-                        1.0
-                    ],
-                    "type": "pivot"
-                },
-                {
-                    "children": [],
-                    "isStatic": false,
-                    "name": "knight",
-                    "obj src": "assets/knight/knight.fbx",
-                    "tex src": "assets/knight/knight.png",
+                    "fov": 90.0,
+                    "name": "camera",
                     "transform": [
                         0.0,
+                        1.5,
                         0.0,
-                        -3.0,
                         0.0,
                         0.0,
                         0.0,
                         1.0
                     ],
-                    "type": "mesh-fbx"
+                    "type": "camera"
                 }
             ],
-            "fov": 90.0,
-            "name": "camera",
-            "transform": [
-                -11.949989318847656,
-                -0.8500003218650818,
-                1.2500072717666626,
-                -428.0,
-                0.0,
-                0.0,
-                1.0
+            "height": 1.7999999523162842,
+            "name": "player",
+            "position": [
+                -3.1499860286712646,
+                -1.5999995470046997,
+                0.0
             ],
-            "type": "camera"
+            "radius": 0.30000001192092896,
+            "type": "player"
         }
     ]
 }

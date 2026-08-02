@@ -119,6 +119,34 @@ struct Light
 struct Tri;
 
 
+// An axis-aligned bounding box: two corners, never rotated. Used as the cheap
+// first-pass filter in collision — six compares reject a triangle before the
+// real closest-point test runs on it.
+//
+// Deliberately conservative: because the box is bigger than what it wraps, a
+// test can answer "maybe" when the truth is "no". That costs a wasted narrow
+// test. What it can never do is answer "no" when the truth is "yes", which is
+// what makes it safe to use as a filter.
+struct AABB
+{
+    glm::vec3 min{0.0f};
+    glm::vec3 max{0.0f};
+
+    bool overlaps(const AABB& other) const
+    {
+        return min.x <= other.max.x && max.x >= other.min.x
+            && min.y <= other.max.y && max.y >= other.min.y
+            && min.z <= other.max.z && max.z >= other.min.z;
+    }
+
+    void expand(float margin)
+    {
+        min -= glm::vec3(margin);
+        max += glm::vec3(margin);
+    }
+};
+
+
 // A node in the scene graph: a transform, its composed world matrix, and its
 // children. Carries no geometry — a bare Object is a pivot / attachment point /
 // group, and its transform still composes into everything beneath it. Geometry
@@ -161,6 +189,12 @@ struct Object
     virtual void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out);
     virtual void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders);
 
+    // Flatten the collision world. Same walk and the same parentWorld rule as the
+    // passes above — it runs at load, before the first Compose() — but a different
+    // filter. See the Mesh override for why this is its own list and not a reuse
+    // of the occluders.
+    virtual void CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out);
+
     // Recursion half of the raycast walk. Unlike the bake passes this reads each
     // node's composed `world` directly rather than a parentWorld, so it is only
     // valid after Compose() has run this frame. `closest` seeds/carries the best
@@ -170,6 +204,15 @@ struct Object
 
     // Virtual so deleting a Mesh through an Object* still frees its GL handles.
     virtual ~Object() = default;
+};
+
+
+struct Player : Object
+{
+    glm::vec3 velocity{0.0f};
+    float radius = 0.3f;
+    float height = 1.8f;
+    bool grounded = false;
 };
 
 
@@ -184,6 +227,7 @@ struct Mesh : Object
     GLsizei indexCount = 0;
 
     bool isStatic = false;
+    bool collides = false;
 
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
@@ -198,6 +242,8 @@ struct Mesh : Object
 
     void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
     void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders) override;
+
+    void CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
 
     void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                  float& closest, Object*& hit) override;
@@ -291,6 +337,7 @@ extern int SW;
 extern int SH;
 
 extern Camera camera;
+extern Player player;
 extern float yaw;
 extern float pitch;
 extern float lastX, lastY;   // last mouse pos (start at screen center)
@@ -306,6 +353,7 @@ extern std::vector<Object*> parents;
 extern std::vector<Light*> lights;
 extern std::vector<UIElement*> uiElements;
 extern std::vector<Tri> occluders;
+extern std::vector<Tri> colliders;
 extern std::vector<glm::vec3> lightGrid;
 
 extern float minX;
@@ -341,7 +389,7 @@ bool loadFBX(const char* path,
              std::vector<Animation>& outAnims);
 
 Mesh makeObj(const char* objPath, const char* texPath,
-             Transform Transform, bool isStatic);
+             Transform Transform, bool isStatic, bool collides);
 
 // for animated objects
 Mesh makeFbx(const char* objPath, const char* texPath,
@@ -360,10 +408,18 @@ glm::vec3 sampleLightAt(const glm::vec3& p);
 // animated pose (the CPU never sees the skinning the shader does).
 Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist);
 
+// Push the player's capsule out of anything in `colliders` it overlaps, and set
+// `grounded` if it came to rest on a floor-ish surface. Call once per frame,
+// after this frame's movement has been applied and before Compose(), so the
+// camera hanging off the player follows the corrected position in the same frame.
+void resolvePlayerCollision(Player& player);
+
 // Bake vertex lighting for every static object in `parents`, with static
 // geometry casting shadows. Call after the scene graph is built and the lights
 // are placed, before Upload(). Static objects must not move after baking.
 void bakeSceneLighting();
+
+void collectSceneColliders();
 
 void uploadObject(Mesh &obj);
 

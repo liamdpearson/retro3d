@@ -1,4 +1,4 @@
-// A simplified version of graphics.hpp in the src/game folder.
+// An altered version of graphics.hpp in the src/game folder meant for the editor.
 
 #pragma once
 
@@ -150,8 +150,6 @@ struct Object
     virtual void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                          float& closest, Object*& hit);
 
-    virtual bool isLight() const { return false; }
-
     // Virtual so deleting a Mesh through an Object* still frees its GL handles.
     virtual ~Object() = default;
 };
@@ -195,8 +193,6 @@ struct LightMesh : Mesh
     glm::vec3 color{1.0f};
     float intensity;
     float radius;
-
-    bool isLight() const override { return true; }
 };
 
 
@@ -209,6 +205,7 @@ struct CameraMesh : Mesh
 struct ObjMesh : Mesh
 {
     bool isStatic;
+    bool collides = false;
     std::string objSrc;
     std::string texSrc;
 };
@@ -219,6 +216,13 @@ struct FbxMesh : Mesh
     bool isStatic;
     std::string objSrc;
     std::string texSrc;
+};
+
+
+struct PlayerMesh : Mesh
+{
+    float radius;
+    float height;
 };
 
 
@@ -352,11 +356,14 @@ CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
                           Transform transform, float FOV);
 
 ObjMesh makeObj(const char* objPath, const char* texPath,
-             Transform Transform, bool isStatic);
+             Transform Transform, bool isStatic, bool collides);
 
 // for animated objects
 FbxMesh makeFbx(const char* objPath, const char* texPath,
              Transform Transform, bool isStatic);
+
+PlayerMesh makePlayerMesh(const char* objPath, const char* texPath,
+             Transform transform, float radius, float height);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 

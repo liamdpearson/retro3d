@@ -9,6 +9,8 @@ using json = nlohmann::json;
 Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
               glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
 
+Player player{};
+
 std::vector<Object*> parents;
 std::vector<Light*> lights;
 std::vector<UIElement*> uiElements;
@@ -54,15 +56,24 @@ static Object* buildNode(const json& j, Object* parent)
         // C++17 guarantees the returned Mesh is constructed straight into the
         // allocation. Without that elision the temporary's destructor would run
         // and free the GL handles the stored copy still points at.
-        node = new Mesh(makeObj(j.at("obj src").get<std::string>().c_str(),
-                                j.at("tex src").get<std::string>().c_str(),
-                                transform, j.value("isStatic", false)));
+        node = new Mesh(
+            makeObj(
+                j.at("obj src").get<std::string>().c_str(),
+                j.at("tex src").get<std::string>().c_str(),
+                transform, j.value("isStatic", false),
+                j.value("collides", false)
+            )
+        );
     }
     else if (type == "mesh-fbx")
     {
-        node = new Mesh(makeFbx(j.at("obj src").get<std::string>().c_str(),
-                                j.at("tex src").get<std::string>().c_str(),
-                                transform));
+        node = new Mesh(
+            makeFbx(
+                j.at("obj src").get<std::string>().c_str(),
+                j.at("tex src").get<std::string>().c_str(),
+                transform
+            )
+        );
     }
     else if (type == "camera")
     {
@@ -76,6 +87,19 @@ static Object* buildNode(const json& j, Object* parent)
     else if (type == "pivot")
     {
         node = new Object(transform); // a bare pivot / attachment point
+    }
+    else if (type == "player")
+    {
+        // The player stores its spawn as a 3-float "position" rather than a full
+        // "transform", so fill in the local that the tail block below stamps onto
+        // the node — assigning player.transform here would just be overwritten.
+        const json& p = j.at("position");
+        transform = Transform{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>(),
+                              0.0f, 0.0f, 0.0f, 1.0f};
+
+        player.radius = j.value("radius", 0.3f);
+        player.height = j.value("height", 1.8f);
+        node = &player;
     }
     else
     {
@@ -138,7 +162,7 @@ void mouseCallback(GLFWwindow*, double xpos, double ypos)
     lastX = float(xpos);
     lastY = float(ypos);
 
-    camera.transform.yaw -= xoffset * sensitivity;
+    player.transform.yaw -= xoffset * sensitivity;
     camera.transform.pitch -= yoffset * sensitivity;
 
     if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;

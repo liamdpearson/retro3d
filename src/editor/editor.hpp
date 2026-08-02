@@ -102,7 +102,7 @@ static Object* cloneNode(Object* src, Object* parent)
 // Clones `copied`'s subtree and inserts it as a sibling immediately after
 // `current`, in whichever list `current` actually lives in (its parent's
 // `children`, or `parents` for a root/light).
-void addObject(Object*& copied, Object*& current)
+void copyObject(Object*& copied, Object*& current)
 {
     if (!copied || !current) return;
 
@@ -124,8 +124,8 @@ void addObject(Object*& copied, Object*& current)
 // have to outlive this call.
 static Object* buildNode(const json& j, Object* parent)
 {
-    const std::string type = j.value("type", "object"); 
-    const std::string name = j.value("name", ""); 
+    const std::string type = j.value("type", "object");
+    const std::string name = j.value("name", "");
 
     if (type == "light")
     {
@@ -149,7 +149,9 @@ static Object* buildNode(const json& j, Object* parent)
         parents.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
     }
-    
+
+    Object* node = nullptr;
+
     Transform transform{};
     if (j.contains("transform"))
     {
@@ -158,8 +160,6 @@ static Object* buildNode(const json& j, Object* parent)
                               t.at(3).get<float>(), t.at(4).get<float>(), t.at(5).get<float>(),
                               t.at(6).get<float>()};
     }
-
-    Object* node = nullptr;
 
     if (type == "mesh-obj")
     {
@@ -170,7 +170,8 @@ static Object* buildNode(const json& j, Object* parent)
             makeObj(
                 j.at("obj src").get<std::string>().c_str(),
                 j.at("tex src").get<std::string>().c_str(),
-                transform, j.at("isStatic").get<bool>()
+                transform, j.value("isStatic", false),
+                j.value("collides", false)
             )
         );
     }
@@ -180,7 +181,7 @@ static Object* buildNode(const json& j, Object* parent)
             makeFbx(
                 j.at("obj src").get<std::string>().c_str(),
                 j.at("tex src").get<std::string>().c_str(),
-                transform, j.at("isStatic").get<bool>()
+                transform, j.value("isStatic", false)
             )
         );
     }
@@ -199,6 +200,23 @@ static Object* buildNode(const json& j, Object* parent)
         node = new Mesh(makeMesh("assets/engine_assets/pivot/pivot.obj",
                                  "assets/engine_assets/pivot/pivot.png",
                                  transform));
+    }
+    else if (type == "player")
+    {
+        // The player stores its spawn as a 3-float "position" rather than a full
+        // "transform", so fill in the local that the tail block below stamps onto
+        // the node — assigning the node directly here would just be overwritten.
+        const json& p = j.at("position");
+        transform = Transform{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>(),
+                              0.0f, 0.0f, 0.0f, 1.0f};
+
+        node = new PlayerMesh(
+            makePlayerMesh(
+                "assets/engine_assets/player/player.obj",
+                "assets/engine_assets/player/player.png",
+                transform, j.at("radius"), j.at("height")
+            )
+        );
     }
     else
     {
@@ -273,6 +291,21 @@ static json objectToJson(Object* node)
         return j; // lights carry no transform/children in the scene format
     }
 
+    if (PlayerMesh* player = dynamic_cast<PlayerMesh*>(node))
+    {
+        j["name"]      = player->name;
+        j["position"]  = { player->transform.x, player->transform.y, player->transform.z };
+        j["radius"]    = player->radius;
+        j["height"]    = player->height;
+        j["type"]      = "player";
+
+        j["children"] = json::array();
+        for (Object* child : node->children)
+            j["children"].push_back(objectToJson(child));
+
+        return j;
+    }
+
     j["transform"] = { node->transform.x, node->transform.y, node->transform.z,
                        node->transform.yaw, node->transform.pitch, node->transform.roll,
                        node->transform.scale };
@@ -283,6 +316,7 @@ static json objectToJson(Object* node)
         j["obj src"]   = obj->objSrc;
         j["tex src"]   = obj->texSrc;
         j["isStatic"]  = obj->isStatic;
+        j["collides"]  = obj->collides;
         j["type"]      = "mesh-obj";
     }
     else if (FbxMesh* fbx = dynamic_cast<FbxMesh*>(node))
@@ -299,6 +333,8 @@ static json objectToJson(Object* node)
         j["fov"]  = cam->FOV;
         j["type"] = "camera";
     }
+    else if (PlayerMesh* player = dynamic_cast<PlayerMesh*>(node))
+    {}
     else // pivot, or anything else with no packed fields
     {
         j["name"] = node->name;
@@ -338,7 +374,7 @@ void exportScene(const char* path)
 }
 
 
-void appendName(std::string& hierarchy, int margin, Object*& obj)
+static void appendName(std::string& hierarchy, int margin, Object*& obj)
 {
     for (int i = 0; i < margin; i++) hierarchy += " ";
     hierarchy = hierarchy + obj->name + '\n';
@@ -359,6 +395,68 @@ std::string buildHierarchyString()
     }
 
     return hierarchy;
+}
+
+
+std::string buildCurObjectString()
+{   
+    std::string label;
+    if (curObject)
+    {
+        label = "Selected: " + curObject->name
+                + "\nType: " + curObject->type
+             + "\n\nX: " + std::to_string(curObject->transform.x) + "\n"
+                 + "Y: " + std::to_string(curObject->transform.y) + "\n"
+                 + "Z: " + std::to_string(curObject->transform.z) + "\n\n";
+        if (curObject->type == "light")
+        {
+            LightMesh* light = static_cast<LightMesh*>(curObject);
+
+            if (light->color.r > 1.0f) light->color.r = 1.0f;
+            if (light->color.g > 1.0f) light->color.g = 1.0f;
+            if (light->color.b > 1.0f) light->color.b = 1.0f;
+            if (light->color.r < 0.0f) light->color.r = 0.0f;
+            if (light->color.g < 0.0f) light->color.g = 0.0f;
+            if (light->color.b < 0.0f) light->color.b = 0.0f;
+                
+            label +="R: " + std::to_string(light->color.r * 255) + "\n"
+                  + "G: " + std::to_string(light->color.g * 255) + "\n"
+                  + "B: " + std::to_string(light->color.b * 255) + "\n\n"
+                  + "Intensity: " + std::to_string(light->intensity) + "\n"
+                  + "Radius: " + std::to_string(light->radius);
+
+            return label;
+        } else {
+            label +=  "Yaw: " + std::to_string(curObject->transform.yaw) + "\n"
+                  + "Pitch: " + std::to_string(curObject->transform.pitch) + "\n"
+                  +  "Roll: " + std::to_string(curObject->transform.roll) + "\n\n"
+                  + "Scale: " + std::to_string(curObject->transform.scale) + "\n\n";
+        }
+
+        if (curObject->type == "mesh-obj")
+        {
+            ObjMesh* obj = static_cast<ObjMesh*>(curObject);
+            label += "IsStatic: " + std::to_string(obj->isStatic) + "\n"
+                  +  "Collides: " + std::to_string(obj->collides);
+        }
+        
+        else if (curObject->type == "mesh-fbx")
+        {
+            FbxMesh* fbx = static_cast<FbxMesh*>(curObject);
+
+            label += "IsStatic: " + std::to_string(fbx->isStatic) + "\n\n";
+            label += "Animations: { ";
+            for (Animation& anim : fbx->animations)
+            {
+                label += anim.name + " ";
+            }
+            label += "}";
+        }
+    } else {
+        label = "Selected: none";
+    }
+
+    return label;
 }
 
 

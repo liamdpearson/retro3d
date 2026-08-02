@@ -1,4 +1,4 @@
-// A simplified version of graphics.cpp in the src/game folder.
+// An altered version of graphics.hpp in the src/game folder meant for the editor.
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -525,7 +525,7 @@ CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
 
 
 ObjMesh makeObj(const char* objPath, const char* texPath,
-             Transform transform, bool isStatic)
+             Transform transform, bool isStatic, bool collides)
 {
     ObjMesh obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
@@ -535,6 +535,7 @@ ObjMesh makeObj(const char* objPath, const char* texPath,
     obj.indexCount = (GLsizei)obj.indices.size();
 
     obj.isStatic = isStatic;
+    obj.collides = collides;
     obj.objSrc = objPath;
     obj.texSrc = texPath;
     
@@ -555,6 +556,23 @@ FbxMesh makeFbx(const char* objPath, const char* texPath,
     obj.isStatic = isStatic;
     obj.objSrc = objPath;
     obj.texSrc = texPath;
+
+    return obj;
+}
+
+
+PlayerMesh makePlayerMesh(const char* objPath, const char* texPath,
+             Transform transform, float radius, float height)
+{
+    PlayerMesh obj;
+    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.radius = radius;
+    obj.height = height;
 
     return obj;
 }
@@ -932,7 +950,7 @@ void drawObj(Mesh& obj)
     // Static meshes already carry their lighting per-vertex. Movers get one value
     // sampled at their world origin — column 3 of the world matrix is its
     // translation, which is the object's origin without needing to decompose.
-    if (obj.isLight())
+    if (obj.type == "light")
     {
         auto& light = static_cast<LightMesh&>(obj);
         glm::vec3 lit = light.color;
