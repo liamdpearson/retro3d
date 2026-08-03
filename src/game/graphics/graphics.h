@@ -30,9 +30,7 @@ const int VERTEX_FLOATS = 19;
 const float SAMPLE = 1.0f;
 const int MAX_BONES = 100;
 
-// How far to lift a shadow ray off the surface it starts on. Too small and
-// surfaces self-shadow into speckle; too large and contact shadows detach.
-// Tuned for a scene measured in metres — rescale if your units change.
+// how much to lift off a vertex before shooting ray at light
 const float SHADOW_BIAS = 1e-3f;
 
 struct Transform
@@ -43,12 +41,10 @@ struct Transform
     float yaw = 0.0f;
     float pitch = 0.0f;
     float roll = 0.0f;
-    // Defaults to 1, never 0: a default-constructed node is an identity pivot.
-    // A zero here silently collapses every descendant to a point.
     float scale = 1.0f;
 
-    // Build the local-to-world matrix for a transform, matching the convention
-    // used by drawObj(): translate, then yaw (Y), then pitch (-X), then scale.
+    // builds the local-to-world matrix for a transform
+    // translate, then yaw (Y), then pitch (-X), then roll (Z), then scale.
     glm::mat4 matrix() const
     {
         glm::mat4 m(1.0f);
@@ -60,32 +56,25 @@ struct Transform
         return m;
     }
 
+    // returns true if the local transforms are equal
     bool operator==(const Transform& other)
     {
         return (x == other.x && y == other.y && z == other.z
                 && yaw == other.yaw && pitch == other.pitch
                 && roll == other.roll && scale == other.scale);
     }
-
-    void operator+(const Transform& other)
-    {
-        x += other.x; y += other.y; z += other.z;
-        yaw += other.yaw; pitch += other.pitch; 
-        roll += other.roll; scale += other.scale;
-    }
     
     Transform& operator=(const Transform&) = default;
 };
 
-
 struct Skeleton
-{
-    std::vector<glm::mat4> inverseBind;
+{   
+    // for converting vertex positions from global to bone local
+    std::vector<glm::mat4> inverseBind; 
     std::vector<int> parent;
     std::vector<std::string> names;
     std::vector<glm::mat4> parentWorld;
 };
-
 
 struct BoneTrack
 {
@@ -103,7 +92,6 @@ struct Animation
     float duration = 0.0f; // seconds
 };
 
-
 struct Light
 {
     glm::vec3 pos;
@@ -112,21 +100,12 @@ struct Light
     float radius;
 };
 
+// a world-space triangle that can block light during the bake
+// and or collide with player.
+struct Tri { glm::vec3 a, b, c; };
 
-// A world-space triangle that can block light during the bake. Defined only in
-// graphics.cpp — it appears here so the bake walk can be declared on the scene
-// node, and an incomplete type is fine behind a reference.
-struct Tri;
-
-
-// An axis-aligned bounding box: two corners, never rotated. Used as the cheap
-// first-pass filter in collision — six compares reject a triangle before the
-// real closest-point test runs on it.
-//
-// Deliberately conservative: because the box is bigger than what it wraps, a
-// test can answer "maybe" when the truth is "no". That costs a wasted narrow
-// test. What it can never do is answer "no" when the truth is "yes", which is
-// what makes it safe to use as a filter.
+// axis aligned bounding box, used as a cheap first pass when calculating
+// which triangles are close to an entity.
 struct AABB
 {
     glm::vec3 min{0.0f};
@@ -146,27 +125,25 @@ struct AABB
     }
 };
 
-
-// A node in the scene graph: a transform, its composed world matrix, and its
-// children. Carries no geometry — a bare Object is a pivot / attachment point /
-// group, and its transform still composes into everything beneath it. Geometry
-// lives in Mesh, which derives from this.
+// a node in the scene graph: contains local transform, world matrix, and
+// children vector. carries no geometry.
 //
-// Every walk over the graph is a virtual pair: the base does the recursion and
-// nothing else, Mesh overrides it to do the per-mesh work and then chains to the
-// base. That way a mesh-less node is never a special case at the call site.
+// when walking the scene nodes, this struct is used as the recursive side of
+// things. it will call the correct function on its children. while Mesh overrides
+// all of these functions it still relies on them when it passes its world to them.
 struct Object
 {
     std::string name;
 
     Transform transform; // local transform
 
-    // World-space transform matrix, recomputed each frame by Draw(). Keeping it
-    // as a matrix (rather than decomposing back to yaw/pitch) avoids gimbal lock
-    // and preserves any roll produced by composing rotated parents and children.
+    // world space transform matrix recalculated each frame by Draw().
+    // kept as a matrix to avoid gimbal lock.
     glm::mat4 world = glm::mat4(1.0f);
     std::vector<Object*> children = {};
-    Object* parent = nullptr;
+
+    // pointer to its parent object, nullptr if it has none.
+    Object* parent = nullptr; 
 
 
     Object() = default;
@@ -176,29 +153,24 @@ struct Object
 
     virtual void Upload();
 
-    // Refresh `world` down the graph. Kept separate from Draw() so the camera
-    // has derived its pos/front before clearBG() builds the view matrix — see
-    // Object::Compose(). Every frame must Compose() before it Draws().
+    // refreshes the world matrices of every object so if any changes
+    // were made to an objects local transform they are shown in real
+    // time. must be run BEFORE Draw()
     virtual void Compose();
 
     virtual void Draw();
 
-    // The two bake passes. Both take parentWorld explicitly rather than reading
-    // `world`: the bake runs before the first Draw(), so `world` is only valid on
-    // roots and every child's is still identity. See bakeSceneLighting().
+    // the two bake passes meant to collect static Tris that block light and set vertex 
+    // color. both take in parentWorld to calculate world because these run before the 
+    // first Compose() call which means only the roots have a valid world.
     virtual void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out);
     virtual void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders);
 
-    // Flatten the collision world. Same walk and the same parentWorld rule as the
-    // passes above — it runs at load, before the first Compose() — but a different
-    // filter. See the Mesh override for why this is its own list and not a reuse
-    // of the occluders.
+    // collects Tris that are both static and collides same as CollectOccluders except
+    // that CollectOccluders cares if an object is static or not. these must be kept seperate
+    // else the user wont be able to seperate static colliders with static non colliders.
     virtual void CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out);
 
-    // Recursion half of the raycast walk. Unlike the bake passes this reads each
-    // node's composed `world` directly rather than a parentWorld, so it is only
-    // valid after Compose() has run this frame. `closest` seeds/carries the best
-    // hit distance and `hit` the object at it — see the free raycast() below.
     virtual void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                          float& closest, Object*& hit);
 
@@ -206,7 +178,7 @@ struct Object
     virtual ~Object() = default;
 };
 
-
+// invisible capsule that collides with the world and can be a node in scene graph.
 struct Player : Object
 {
     glm::vec3 velocity{0.0f};
@@ -214,7 +186,6 @@ struct Player : Object
     float height = 1.8f;
     bool grounded = false;
 };
-
 
 // A scene node that also has geometry: the CPU mesh, its GL handles, and (for
 // skinned FBX) a skeleton plus its baked clips.
@@ -244,7 +215,7 @@ struct Mesh : Object
     void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders) override;
 
     void CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
-
+    
     void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                  float& closest, Object*& hit) override;
 
@@ -343,7 +314,6 @@ extern float pitch;
 extern float lastX, lastY;   // last mouse pos (start at screen center)
 extern bool  firstMouse;
 
-extern const float sensitivity;
 extern float deltaTime, lastFrame;
 
 extern const char* vertexShaderSrc;
@@ -371,6 +341,8 @@ extern unsigned int shaderProgram;
 extern int modelLoc, viewLoc, projectionLoc;
 extern int boneMatricesLoc;
 extern int lightModeLoc, objectLightLoc, textModeLoc;
+
+extern float lightAmbient;
 
 unsigned int compileShader(GLenum type, const char* src);
 
@@ -400,30 +372,6 @@ Mesh makeFbx(const char* objPath, const char* texPath,
              Transform Transform);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
-
-// Sample all lights at one world-space point, for lighting a whole mover at once.
-glm::vec3 sampleLightAt(const glm::vec3& p);
-
-// Cast a ray from `origin` along `dir` (need not be normalised) and return the
-// nearest object whose geometry it hits within `maxDist`, or nullptr if none.
-// Tests every mesh in `parents`, static and dynamic alike, against its current
-// world-space triangles. Must run after this frame's Compose(), since it reads
-// each node's composed `world`. Skinned meshes are tested in bind pose, not the
-// animated pose (the CPU never sees the skinning the shader does).
-Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist);
-
-// Push the player's capsule out of anything in `colliders` it overlaps, and set
-// `grounded` if it came to rest on a floor-ish surface. Call once per frame,
-// after this frame's movement has been applied and before Compose(), so the
-// camera hanging off the player follows the corrected position in the same frame.
-void resolvePlayerCollision(Player& player);
-
-// Bake vertex lighting for every static object in `parents`, with static
-// geometry casting shadows. Call after the scene graph is built and the lights
-// are placed, before Upload(). Static objects must not move after baking.
-void bakeSceneLighting();
-
-void collectSceneColliders();
 
 void uploadObject(Mesh &obj);
 

@@ -6,7 +6,7 @@
 
 #include <ufbx.h>
 
-#include "graphics.hpp"
+#include "graphics.h"
 
 
 int SW = 0;   // overwritten from the monitor's video mode in main()
@@ -17,7 +17,6 @@ float pitch = 0.0f;
 float lastX, lastY;   // last mouse pos (start at screen center)
 bool  firstMouse = true;
 
-const float sensitivity = 0.1f;
 float deltaTime = 0.0f, lastFrame = 0.0f;  // for frame-rate-independent speed
 
 GLFWwindow* window;
@@ -29,7 +28,6 @@ int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
 int lightModeLoc, objectLightLoc, textModeLoc;
 
-float lightAmbient = 0.2f;
 
 std::vector<Tri> occluders;
 std::vector<Tri> colliders;
@@ -90,7 +88,6 @@ void main()
 }
 )glsl";
 
-
 // Runs once per fragment (≈ per pixel the triangle covers). Outputs the color.
 const char* fragmentShaderSrc = R"glsl(
 #version 330 core
@@ -125,7 +122,6 @@ void main()
 }
 )glsl";
 
-
 // ----------------------------------------------------------------------------
 // Helper: compile one shader and report any GLSL compile errors.
 // (Shaders compile on the GPU driver — if you get a typo, you NEED this log.)
@@ -146,7 +142,6 @@ unsigned int compileShader(GLenum type, const char* src)
     }
     return shader;
 }
-
 
 int initWindow()
 {
@@ -175,7 +170,6 @@ int initWindow()
     glEnable(GL_DEPTH_TEST);
     return 0;
 }
-
 
 void buildShaderProgram() {
 
@@ -220,7 +214,6 @@ void buildShaderProgram() {
     glUniformMatrix4fv(boneMatricesLoc, MAX_BONES, GL_FALSE, glm::value_ptr(identity[0]));
 }
 
-
 // Load a PNG/JPG from `path` into a new GL texture and return its id.
 unsigned int loadTexture(const char* path)
 {
@@ -247,7 +240,6 @@ unsigned int loadTexture(const char* path)
     return texture;
 }
 
-
 // Pixel size of a PNG/JPG as {width, height}, without decoding the image.
 // Returns {0, 0} if the file can't be read.
 std::vector<int> textureDimensions(const char* path)
@@ -259,7 +251,6 @@ std::vector<int> textureDimensions(const char* path)
     }
     return std::vector<int>{tw, th};
 }
-
 
 bool loadOBJ(const char* path,
                     std::vector<float>& outVerts,
@@ -360,7 +351,6 @@ bool loadOBJ(const char* path,
     return true;
 }
 
-
 static glm::mat4 ufbxToGlm(const ufbx_matrix& m)
 {
     glm::mat4 r(1.0f);
@@ -370,7 +360,6 @@ static glm::mat4 ufbxToGlm(const ufbx_matrix& m)
     r[3] = glm::vec4((float)m.cols[3].x, (float)m.cols[3].y, (float)m.cols[3].z, 1.0f);
     return r;
 }
-
 
 bool loadFBX(const char* path,
              std::vector<float>& outVerts,
@@ -557,7 +546,6 @@ bool loadFBX(const char* path,
     return true;
 }   
 
-
 Mesh makeObj(const char* objPath, const char* texPath,
              Transform transform, bool isStatic, bool collides)
 {
@@ -573,7 +561,6 @@ Mesh makeObj(const char* objPath, const char* texPath,
     return obj;
 }
 
-
 // always dynamic because fbxs are for animations in my case
 Mesh makeFbx(const char* objPath, const char* texPath,
              Transform transform)
@@ -587,7 +574,6 @@ Mesh makeFbx(const char* objPath, const char* texPath,
 
     return obj;
 }
-
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale)
 {
@@ -613,557 +599,6 @@ UIElement makeUIElement(const char* texPath, float x, float y, float scale)
 
     return ui;
 }
-
-
-// A world-space triangle that can block light during the bake.
-struct Tri { glm::vec3 a, b, c; };
-
-
-// Möller–Trumbore. Two-sided on purpose: the back face of a closed mesh blocks
-// light just as well as the front, so there's no winding cull here. Returns on
-// the first hit — a shadow ray only cares *whether* something blocks, not what.
-static bool rayOccluded(const glm::vec3& origin, const glm::vec3& dir,
-                        float maxDist, const std::vector<Tri>& tris)
-{
-    const float EPS = 1e-6f;
-
-    for (const Tri& t : tris)
-    {
-        glm::vec3 e1 = t.b - t.a;
-        glm::vec3 e2 = t.c - t.a;
-        glm::vec3 p  = glm::cross(dir, e2);
-        float det = glm::dot(e1, p);
-        if (glm::abs(det) < EPS) continue;   // ray runs parallel to the triangle
-
-        float invDet = 1.0f / det;
-        glm::vec3 tv = origin - t.a;
-
-        float u = glm::dot(tv, p) * invDet;
-        if (u < 0.0f || u > 1.0f) continue;
-
-        glm::vec3 q = glm::cross(tv, e1);
-        float v = glm::dot(dir, q) * invDet;
-        if (v < 0.0f || u + v > 1.0f) continue;
-
-        float hit = glm::dot(e2, q) * invDet;
-        if (hit > EPS && hit < maxDist) return true;   // blocked before the light
-    }
-    return false;
-}
-
-
-// Möller–Trumbore for a single triangle, returning the hit distance rather than
-// just whether it hit. Two-sided like rayOccluded(); on a hit in front of the
-// origin it writes the distance along `dir` to `outT` and returns true. `dir`
-// must be normalised for `outT` to be in world units.
-static bool rayTriangle(const glm::vec3& origin, const glm::vec3& dir,
-                        const glm::vec3& a, const glm::vec3& b, const glm::vec3& c,
-                        float& outT)
-{
-    const float EPS = 1e-6f;
-
-    glm::vec3 e1 = b - a;
-    glm::vec3 e2 = c - a;
-    glm::vec3 p  = glm::cross(dir, e2);
-    float det = glm::dot(e1, p);
-    if (glm::abs(det) < EPS) return false;   // ray runs parallel to the triangle
-
-    float invDet = 1.0f / det;
-    glm::vec3 tv = origin - a;
-
-    float u = glm::dot(tv, p) * invDet;
-    if (u < 0.0f || u > 1.0f) return false;
-
-    glm::vec3 q = glm::cross(tv, e1);
-    float v = glm::dot(dir, q) * invDet;
-    if (v < 0.0f || u + v > 1.0f) return false;
-
-    float t = glm::dot(e2, q) * invDet;
-    if (t <= EPS) return false;              // behind or on the origin
-    outT = t;
-    return true;
-}
-
-
-// Sample every light at a single world-space point. Deliberately has no normal
-// term: the caller applies one value to a whole mesh, so there is no surface to
-// take a lambert against. Brightness therefore falls off with distance alone.
-// Keep the attenuation curve identical to bakeObjectLighting()'s, or movers and
-// the baked floor beneath them will disagree about how bright the room is.
-glm::vec3 sampleLightAt(const glm::vec3& p)
-{
-    glm::vec3 lit(lightAmbient);
-
-    for (const Light* light : lights)
-    {
-        glm::vec3 toLight = light->pos - p;
-        float dist = glm::length(toLight);
-        glm::vec3 l = toLight / dist;
-        
-        if (rayOccluded(p, l, dist, occluders)) continue;
-
-        float atten = light->intensity / (1.0f + (dist * dist / light->radius));
-        lit += light->color * atten;
-    }
-
-    // Normalize by the brightest channel rather than clamping each one: a
-    // per-channel min() pulls the channels toward each other, so an overbright
-    // yellow light washes out to white. Scaling keeps the hue and spends the
-    // overflow on brightness instead. Must match Mesh::BakeLighting()'s clamp.
-    float peak = glm::max(lit.r, glm::max(lit.g, lit.b));
-    if (peak > 1.0f) lit /= peak;
-
-    return lit;
-}
-
-
-// Pass 1, recursion half. A mesh-less node contributes no triangles; it still
-// composes its transform into the world matrix its children are gathered with,
-// so a pivot above static geometry moves that geometry's shadows with it.
-void Object::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
-{
-    glm::mat4 world = parentWorld * transform.matrix();
-    for (Object*& child : children) child->CollectOccluders(world, out);
-}
-
-
-// Pass 1, geometry half. Flatten every static triangle in the scene into world
-// space. Occlusion is a scene-wide property, so this must run over the whole
-// graph before any vertex is baked. Dynamic objects are deliberately skipped:
-// they move, and a shadow baked from them would not.
-void Mesh::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
-{
-    glm::mat4 world = parentWorld * transform.matrix();
-
-    if (isStatic)
-    {
-        for (size_t i = 0; i + 2 < indices.size(); i += 3)
-        {
-            Tri t;
-            glm::vec3* corner[3] = { &t.a, &t.b, &t.c };
-            for (int c = 0; c < 3; c++)
-            {
-                size_t v = (size_t)indices[i + c] * VERTEX_FLOATS;
-                glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
-                *corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
-            }
-            out.push_back(t);
-        }
-    }
-
-    // Chain with parentWorld, NOT the composed world above: the base recomposes
-    // this node's transform itself. Passing `world` here would apply this mesh's
-    // transform twice to every descendant — silent, and geometrically plausible.
-    Object::CollectOccluders(parentWorld, out);
-}
-
-
-// Pass 2, recursion half. See CollectOccluders() above for why this composes.
-void Object::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
-{
-    glm::mat4 world = parentWorld * transform.matrix();
-    for (Object*& child : children) child->BakeLighting(world, occluders);
-}
-
-
-// Pass 2, geometry half. Bake per-vertex irradiance into the last 3 floats of
-// every static vertex. parentWorld mirrors the composition Draw() does, so
-// static children of a static parent bake in their true world position.
-void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
-{
-    glm::mat4 world = parentWorld * transform.matrix();
-
-    if (isStatic)
-    {
-        // Inverse-transpose so normals survive any non-uniform scale baked into
-        // the geometry by loadFBX. Transform only ever applies uniform scale, but
-        // this costs nothing here and is correct either way.
-        glm::mat3 normalMat = glm::transpose(glm::inverse(glm::mat3(world)));
-
-        for (size_t v = 0; v + VERTEX_FLOATS <= vertices.size(); v += VERTEX_FLOATS)
-        {
-            glm::vec3 localPos(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
-            glm::vec3 localNrm(vertices[v + 5], vertices[v + 6], vertices[v + 7]);
-
-            glm::vec3 worldPos = glm::vec3(world * glm::vec4(localPos, 1.0f));
-            glm::vec3 n = glm::normalize(normalMat * localNrm);
-
-            glm::vec3 lit(lightAmbient);
-
-            for (const Light* light : lights)
-            {
-                glm::vec3 toLight = light->pos - worldPos;
-                float dist = glm::length(toLight);
-                if (dist < 0.0001f) continue;
-
-                glm::vec3 l = toLight / dist;
-                float lambert = glm::max(glm::dot(n, l), 0.0f);
-                if (lambert <= 0.0f) continue;   // facing away, no contribution
-
-                // Lift the ray off the surface before firing it. Without this the
-                // vertex re-hits the very triangles it sits on and every surface
-                // shadows itself — the classic acne speckle.
-                glm::vec3 origin = worldPos + n * SHADOW_BIAS;
-                if (rayOccluded(origin, l, dist, occluders)) continue;
-
-                // 1 + d² rather than d² so a light sitting on a vertex doesn't
-                // divide by zero. Not physical, but stable and easy to tune.
-                float atten = light->intensity / (1.0f + (dist * dist / light->radius));
-
-                lit += light->color * lambert * atten;
-            }
-
-            // Hue-preserving clamp — see the note in sampleLightAt(), and keep
-            // the two identical or a mover will tint differently to the floor
-            // it stands on wherever the light overflows.
-            float peak = glm::max(lit.r, glm::max(lit.g, lit.b));
-            if (peak > 1.0f) lit /= peak;
-
-            vertices[v + 16] = lit.r;
-            vertices[v + 17] = lit.g;
-            vertices[v + 18] = lit.b;
-        }
-
-        std::fprintf(stderr, "  baked %zu verts against %zu lights\n",
-                     vertices.size() / VERTEX_FLOATS, lights.size());
-    }
-
-    // parentWorld, not world — see the note in Mesh::CollectOccluders().
-    Object::BakeLighting(parentWorld, occluders);
-}
-
-
-// Recursion half of the raycast walk. A mesh-less node contributes no geometry
-// of its own but still passes the ray down to its children.
-void Object::Raycast(const glm::vec3& origin, const glm::vec3& dir,
-                     float& closest, Object*& hit)
-{
-    for (Object*& child : children) child->Raycast(origin, dir, closest, hit);
-}
-
-
-// Geometry half. Test every triangle of this mesh, transformed into world space
-// by its already-composed `world`, and keep the nearest hit found so far. No
-// isStatic gate: dynamic meshes are candidates too. Reading `world` directly is
-// safe here (unlike the bake) because Raycast only runs after Compose().
-void Mesh::Raycast(const glm::vec3& origin, const glm::vec3& dir,
-                   float& closest, Object*& hit)
-{
-    for (size_t i = 0; i + 2 < indices.size(); i += 3)
-    {
-        glm::vec3 corner[3];
-        for (int c = 0; c < 3; c++)
-        {
-            size_t v = (size_t)indices[i + c] * VERTEX_FLOATS;
-            glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
-            corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
-        }
-
-        float t;
-        if (rayTriangle(origin, dir, corner[0], corner[1], corner[2], t) && t < closest)
-        {
-            closest = t;
-            hit = this;
-        }
-    }
-
-    Object::Raycast(origin, dir, closest, hit);
-}
-
-
-// Cast a ray and return the nearest object it hits within maxDist, else nullptr.
-// closest starts at maxDist and shrinks to each nearer hit, so any object left
-// in `hit` at the end was struck before maxDist. dir is normalised so maxDist
-// and the internal distances share world units regardless of the caller's dir.
-Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist)
-{
-    glm::vec3 d = glm::normalize(dir);
-    float closest = maxDist;
-    Object* hit = nullptr;
-
-    for (Object*& obj : parents) obj->Raycast(origin, d, closest, hit);
-
-    return hit;
-}
-
-
-// Bake the whole scene. Call once after the scene graph is assembled and the
-// lights are placed, but before Upload() — the result is folded into the vertex
-// data, so a baked object must never move afterwards.
-void bakeSceneLighting()
-{
-    double start = glfwGetTime();
-
-    for (Object*& obj : parents) obj->CollectOccluders(glm::mat4(1.0f), occluders);
-
-    std::fprintf(stderr, "bake: %zu occluder tris\n", occluders.size());
-
-    for (Object*& obj : parents) obj->BakeLighting(glm::mat4(1.0f), occluders);
-
-    // create light grid for dynamic objects
-    for (Tri tri : occluders)
-    {
-        std::vector<glm::vec3> vertices{tri.a, tri.b, tri.c};
-        for (glm::vec3& v : vertices)
-        {
-            if (v.x < minX) minX = v.x;
-            if (v.y < minY) minY = v.y;
-            if (v.z < minZ) minZ = v.z;
-
-            if (v.x > maxX) maxX = v.x;
-            if (v.y > maxY) maxY = v.y;
-            if (v.z > maxZ) maxZ = v.z;
-        }
-    }
-
-    std::cout << minX << ' ' << maxX << ' ' << minY << ' ' << maxY << ' ' << minZ << ' ' << maxZ << '\n';
-
-    minX = floor(minX) - 1; minY = floor(minY) - 1; minZ = floor(minZ) - 1;
-    maxX = floor(maxX) + 2; maxY = floor(maxY) + 2; maxZ = floor(maxZ) + 2;
-
-    std::cout << minX << ' ' << maxX << ' ' << minY << ' ' << maxY << ' ' << minZ << ' ' << maxZ << '\n';
-
-
-    for (int x = minX; x < maxX + 1; x++)
-    {
-        for (int y = minY; y < maxY + 1; y++)
-        {
-            for (int z = minZ; z < maxZ + 1; z++)
-            {
-                glm::vec3 lit = sampleLightAt(glm::vec3{x, y, z});
-                lightGrid.push_back(lit);
-            }
-        }
-    }
-    
-    std::fprintf(stderr, "bake: done in %.2fs\n", glfwGetTime() - start);
-}
-
-
-void Object::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
-{
-    glm::mat4 world = parentWorld * transform.matrix();
-    for (Object*& child : children) child->CollectColliders(world, out);
-}
-
-
-void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
-{
-    glm::mat4 world = parentWorld * transform.matrix();
-
-    if (isStatic && collides)
-    {
-        for (size_t i = 0; i + 2 < indices.size(); i += 3)
-        {
-            Tri t;
-            glm::vec3* corner[3] = { &t.a, &t.b, &t.c };
-            for (int c = 0; c < 3; c++)
-            {
-                size_t v = (size_t)indices[i + c] * VERTEX_FLOATS;
-                glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
-                *corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
-            }
-            out.push_back(t);
-        }
-    }
-
-    Object::CollectColliders(parentWorld, out);
-}
-
-
-void collectSceneColliders()
-{
-    for (Object*& obj : parents) obj->CollectColliders(glm::mat4(1.0f), colliders);
-}
-
-
-// The player's capsule as a box: radius on X/Z, feet to head on Y. Loose on
-// purpose — this is only the broadphase filter, and the capsule test behind it
-// is what decides the real answer.
-static AABB playerBounds(const Player& player)
-{
-    glm::vec3 feet(player.transform.x, player.transform.y, player.transform.z);
-
-    AABB box;
-    box.min = feet - glm::vec3(player.radius, 0.0f, player.radius);
-    box.max = feet + glm::vec3(player.radius, player.height, player.radius);
-    return box;
-}
-
-
-// A triangle's own box: the componentwise min/max of its three corners. Thin to
-// the point of flat for an axis-aligned triangle, which is fine — a zero-extent
-// box still tests correctly.
-//
-// Recomputed per test rather than cached on Tri: it is six min/max ops against a
-// closest-point test an order of magnitude heavier, and a cached field would sit
-// uninitialised on every triangle the occluder pass builds.
-static AABB triBounds(const Tri& t)
-{
-    AABB box;
-    box.min = glm::min(glm::min(t.a, t.b), t.c);
-    box.max = glm::max(glm::max(t.a, t.b), t.c);
-    return box;
-}
-
-
-// Closest point to `p` on the segment ab.
-static glm::vec3 closestPointOnSegment(const glm::vec3& p,
-                                       const glm::vec3& a, const glm::vec3& b)
-{
-    glm::vec3 ab = b - a;
-    float len2 = glm::dot(ab, ab);
-    if (len2 < 1e-12f) return a;   // degenerate segment: both ends are the same point
-
-    return a + ab * glm::clamp(glm::dot(p - a, ab) / len2, 0.0f, 1.0f);
-}
-
-
-// Closest point to `p` on triangle t. The branches walk the triangle's Voronoi
-// regions, so this is correct whether the nearest feature is the face interior,
-// one of the three edges, or one of the three corners — which is exactly the
-// distinction a box test can't make and why it runs second.
-static glm::vec3 closestPointOnTriangle(const glm::vec3& p, const Tri& t)
-{
-    glm::vec3 ab = t.b - t.a, ac = t.c - t.a, ap = p - t.a;
-
-    float d1 = glm::dot(ab, ap), d2 = glm::dot(ac, ap);
-    if (d1 <= 0.0f && d2 <= 0.0f) return t.a;                   // corner A
-
-    glm::vec3 bp = p - t.b;
-    float d3 = glm::dot(ab, bp), d4 = glm::dot(ac, bp);
-    if (d3 >= 0.0f && d4 <= d3) return t.b;                     // corner B
-
-    float vc = d1 * d4 - d3 * d2;
-    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)                 // edge AB
-        return t.a + ab * (d1 / (d1 - d3));
-
-    glm::vec3 cp = p - t.c;
-    float d5 = glm::dot(ab, cp), d6 = glm::dot(ac, cp);
-    if (d6 >= 0.0f && d5 <= d6) return t.c;                     // corner C
-
-    float vb = d5 * d2 - d1 * d6;
-    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)                 // edge AC
-        return t.a + ac * (d2 / (d2 - d6));
-
-    float va = d3 * d6 - d5 * d4;
-    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)   // edge BC
-        return t.b + (t.c - t.b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
-
-    float denom = 1.0f / (va + vb + vc);                        // face interior
-    return t.a + ab * (vb * denom) + ac * (vc * denom);
-}
-
-
-// How floor-like a surface has to be to stand on: the Y component of its normal,
-// so 0.7 is roughly a 45 degree slope. Steeper than that is a wall — the player
-// still slides along it, just never counts as grounded on it.
-static const float GROUND_NORMAL_Y = 0.7f;
-
-
-// Resolve the player against the static collision world.
-//
-// Positional depenetration rather than a swept trace: let the move happen, then
-// push back out of whatever it ended up inside. Sliding falls out for free,
-// because the push is always along the contact normal and so leaves any motion
-// parallel to the surface untouched.
-//
-// Iterated because fixing one contact can push the capsule into another — an
-// inside corner needs two passes to settle — and it stops early on the first
-// pass that finds nothing left to fix, which is the common case.
-void resolvePlayerCollision(Player& player)
-{
-    const int MAX_ITERATIONS = 4;
-    const float radiusSq = player.radius * player.radius;
-
-    player.grounded = false;
-
-    for (int iter = 0; iter < MAX_ITERATIONS; iter++)
-    {
-        // Rebuilt per pass rather than per push: a push inside this pass leaves
-        // the box slightly stale, and the next pass is what picks that up.
-        AABB playerBox = playerBounds(player);
-        playerBox.expand(0.01f);
-
-        bool hitAny = false;
-
-        for (const Tri& t : colliders)
-        {
-            if (!playerBox.overlaps(triBounds(t))) continue;
-
-            glm::vec3 rawNormal = glm::cross(t.b - t.a, t.c - t.a);
-            float normalLenSq = glm::dot(rawNormal, rawNormal);
-            if (normalLenSq < 1e-12f) continue;   // degenerate tri, no surface to push off
-
-            glm::vec3 faceNormal = rawNormal / glm::sqrt(normalLenSq);
-
-            // The capsule's axis: the segment that, swept by `radius`, traces the
-            // capsule exactly — so it is inset by the radius at each cap.
-            glm::vec3 feet(player.transform.x, player.transform.y, player.transform.z);
-            glm::vec3 base = feet + glm::vec3(0.0f, player.radius, 0.0f);
-            glm::vec3 tip  = feet + glm::vec3(0.0f, player.height - player.radius, 0.0f);
-            if (tip.y < base.y) tip = base;   // player wider than tall: degenerate to a sphere
-
-            // Reduce capsule-vs-triangle to sphere-vs-triangle: find where the
-            // axis crosses the triangle's plane, clamp that into the triangle,
-            // then take the point on the axis nearest it as the sphere center.
-            glm::vec3 axis = tip - base;
-            float denom = glm::dot(faceNormal, axis);
-
-            glm::vec3 reference;
-            if (glm::abs(denom) < 1e-6f)
-                reference = t.a;   // axis parallel to the plane; any point on it serves
-            else
-                reference = base + axis * glm::clamp(glm::dot(faceNormal, t.a - base) / denom,
-                                                     0.0f, 1.0f);
-
-            reference = closestPointOnTriangle(reference, t);
-
-            glm::vec3 center  = closestPointOnSegment(reference, base, tip);
-            glm::vec3 contact = closestPointOnTriangle(center, t);
-
-            glm::vec3 delta = center - contact;
-            float distSq = glm::dot(delta, delta);
-            if (distSq >= radiusSq) continue;   // clear of this triangle
-
-            glm::vec3 pushDir;
-            float depth;
-            if (distSq > 1e-12f)
-            {
-                float dist = glm::sqrt(distSq);
-                pushDir = delta / dist;
-                depth   = player.radius - dist;
-            }
-            else
-            {
-                // Center landed exactly on the surface, so `delta` carries no
-                // direction. Fall back to the face normal.
-                pushDir = faceNormal;
-                depth   = player.radius;
-            }
-            
-            player.transform.y += pushDir.y * depth;
-            
-            if (pushDir.y > GROUND_NORMAL_Y) {
-                player.grounded = true;
-                // Cancel only the component of motion heading into the surface for y
-                player.velocity.y -= pushDir.y * glm::min(0.0f, glm::dot(player.velocity.y, pushDir.y));
-            } else {
-                // only push player on x and z if its not a ground tri
-                player.transform.x += pushDir.x * depth;
-                player.transform.z += pushDir.z * depth;
-
-                // Cancel only the component of motion heading into the surface
-                player.velocity -= pushDir * glm::min(0.0f, glm::dot(player.velocity, pushDir));
-                
-            }
-            hitAny = true;
-        }
-
-        if (!hitAny) break;
-    }
-}
-
 
 void uploadObject(Mesh &obj)
 {
@@ -1207,7 +642,6 @@ void uploadObject(Mesh &obj)
     glBindVertexArray(0); // stop recording (optional tidy-up)
 }
 
-
 void uploadUIElement(UIElement &ui)
 {
     glGenVertexArrays(1, &ui.VAO);
@@ -1250,7 +684,6 @@ void uploadUIElement(UIElement &ui)
     glBindVertexArray(0); // stop recording (optional tidy-up)
 }
 
-
 void uploadUIText(UIText& t)
 {
     glGenVertexArrays(1, &t.VAO);
@@ -1283,7 +716,6 @@ void uploadUIText(UIText& t)
     glBindVertexArray(0);
 }
 
-
 // Zero-filled 19-float vertex: only pos + uv are read in text mode.
 static void pushGlyphQuad(std::vector<float>& v, std::vector<unsigned int>& idx,
                           float x0, float y0, float x1, float y1, const Glyph& g)
@@ -1298,7 +730,6 @@ static void pushGlyphQuad(std::vector<float>& v, std::vector<unsigned int>& idx,
     vert(x0, y1, g.u0, g.v1);   // bottom-left
     idx.insert(idx.end(), { base+0, base+1, base+2, base+0, base+2, base+3 });
 }
-
 
 // Walks the string, placing each glyph along the baseline. size is a straight
 // multiplier over bake pixels, so size == bakePixelHeight renders at 1:1.
@@ -1354,7 +785,6 @@ void layoutText(UIText& t)
         penX += g.xadvance * s;
     }
 }
-
 
 // Sample obj's baked clip at obj.animTime and fill `palette` with each bone's
 // skinning matrix Aⱼ·Bⱼ⁻¹. No skeleton/clip -> identity palette (bind pose).
@@ -1412,7 +842,6 @@ static void computePose(const Mesh& obj, std::vector<glm::mat4>& palette)
     for (int b = 0; b < n; b++) palette[b] = world[b] * sk.inverseBind[b];
 }
 
-
 // Sample the baked light grid at an arbitrary world point, trilinearly blending
 // the eight cells around it so a mover crossing a cell boundary fades instead of
 // popping.
@@ -1462,7 +891,6 @@ static glm::vec3 gridLightAt(const glm::vec3& p)
     return glm::mix(c0, c1, tx);
 }
 
-
 void drawObj(Mesh& obj)
 {
     glm::mat4 model;
@@ -1504,7 +932,6 @@ void drawObj(Mesh& obj)
     glDrawElements(GL_TRIANGLES, obj.indexCount, GL_UNSIGNED_INT, 0);
 }
 
-
 void drawUIElement(UIElement& ui)
 {
     // update location
@@ -1534,7 +961,6 @@ void drawUIElement(UIElement& ui)
     glDrawElements(GL_TRIANGLES, ui.indexCount, GL_UNSIGNED_INT, 0);
 }
 
-
 // Rebuilds geometry each call (the string may have changed) and draws the whole
 // line in one call. Must be issued between beginUI() and endUI().
 void drawText(UIText& t)
@@ -1558,7 +984,6 @@ void drawText(UIText& t)
 
     glUniform1i(textModeLoc, 0);   // back to normal UI for whatever draws next
 }
-
 
 void clearBG(float r, float g, float b, float a)
 {   
@@ -1589,7 +1014,6 @@ void clearBG(float r, float g, float b, float a)
 
     glActiveTexture(GL_TEXTURE0);
 }
-
 
 // Switches the shared shader over to 2D screen-space drawing. Call once after
 // the 3D Draw() pass; everything issued afterwards is UI until the next frame's
@@ -1632,7 +1056,6 @@ void beginUI()
     glActiveTexture(GL_TEXTURE0);
 }
 
-
 // Undoes beginUI()'s state so the next frame's 3D pass starts clean. The
 // matrices don't need restoring — clearBG() unconditionally reuploads all three.
 void endUI()
@@ -1641,13 +1064,11 @@ void endUI()
     glEnable(GL_DEPTH_TEST);
 }
 
-
 // A mesh-less node has nothing of its own to upload; it just carries the walk.
 void Object::Upload()
 {
     for (Object*& child : children) child->Upload();
 }
-
 
 void Mesh::Upload()
 {
@@ -1655,12 +1076,10 @@ void Mesh::Upload()
     Object::Upload();
 }
 
-
 void Camera::Upload()
 {
     Object::Upload();
 }
-
 
 void Mesh::SetAnimation(int index)
 {
@@ -1668,7 +1087,6 @@ void Mesh::SetAnimation(int index)
     currentAnim = index;
     animTime = 0.0f;   // restart the new clip from its first frame
 }
-
 
 bool Mesh::SetAnimation(const std::string& name)
 {
@@ -1682,7 +1100,6 @@ bool Mesh::SetAnimation(const std::string& name)
     }
     return false;
 }
-
 
 // Composition pass. `world` is set by the caller for roots (see main's loop) and
 // by the parent for children, so a mesh-less pivot still folds its transform
@@ -1700,7 +1117,6 @@ void Object::Compose()
         child->Compose();
     }
 }
-
 
 void Camera::Compose()
 {
@@ -1721,7 +1137,6 @@ void Camera::Compose()
     Object::Compose();
 }
 
-
 // Draw only — every `world` in the graph is already up to date by the time this
 // runs. Recursion and nothing else on the base; Mesh overrides it to draw.
 void Object::Draw()
@@ -1729,13 +1144,11 @@ void Object::Draw()
     for (Object*& child : this->children) child->Draw();
 }
 
-
 void Mesh::Draw()
 {
     drawObj(*this);
     Object::Draw();
 }
-
 
 Mesh::~Mesh()
 {
@@ -1744,7 +1157,6 @@ Mesh::~Mesh()
     glDeleteBuffers(1, &EBO);
     glDeleteTextures(1, &texture);
 }
-
 
 Font bakeFont(const char* path, float pixelHeight)
 {

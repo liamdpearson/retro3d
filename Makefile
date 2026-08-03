@@ -26,7 +26,7 @@ LDLIBS   := -lglfw3 -lopengl32 -lgdi32
 # Shared engine + vendored deps compiled into both exes.
 COMMON_SRCS := third_party/glad/src/glad.c third_party/ufbx/ufbx.c
 
-GAME_SRCS   := src/game/game.cpp src/game/graphics.cpp $(COMMON_SRCS)
+GAME_SRCS   := src/game/game.cpp src/game/graphics/graphics.cpp src/game/lighting/lighting.cpp src/game/collisions/collisions.cpp $(COMMON_SRCS)
 GAME_TARGET := game.exe
 
 EDITOR_SRCS   := src/editor/editor.cpp src/editor/editor_graphics.cpp $(COMMON_SRCS)

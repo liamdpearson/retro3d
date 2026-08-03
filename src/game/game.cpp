@@ -1,10 +1,13 @@
-#include "game.hpp"
+#include "game.h"
+
+const float sensitivity = 0.1f;
+float lightAmbient = 0.3f;
 
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS && player.grounded) {
-        player.velocity.y += 10.0f;
+        player.velocity.y += 5.0f;
     }
 }
 

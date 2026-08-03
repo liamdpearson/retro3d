@@ -213,7 +213,7 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        float speed = 2.5f * deltaTime; // deltaTime keeps speed steady regardless of FPS
+        float speed = 5.0f * deltaTime; // deltaTime keeps speed steady regardless of FPS
         
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)

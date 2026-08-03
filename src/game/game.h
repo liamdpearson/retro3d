@@ -1,6 +1,8 @@
 #pragma once
 
-#include "graphics.hpp"
+#include "graphics/graphics.h"
+#include "lighting/lighting.h"
+#include "collisions/collisions.h"
 
 using json = nlohmann::json;
 
