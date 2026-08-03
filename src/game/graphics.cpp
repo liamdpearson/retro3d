@@ -706,7 +706,14 @@ glm::vec3 sampleLightAt(const glm::vec3& p)
         lit += light->color * atten;
     }
 
-    return glm::min(lit, glm::vec3(1.0f));
+    // Normalize by the brightest channel rather than clamping each one: a
+    // per-channel min() pulls the channels toward each other, so an overbright
+    // yellow light washes out to white. Scaling keeps the hue and spends the
+    // overflow on brightness instead. Must match Mesh::BakeLighting()'s clamp.
+    float peak = glm::max(lit.r, glm::max(lit.g, lit.b));
+    if (peak > 1.0f) lit /= peak;
+
+    return lit;
 }
 
 
@@ -806,9 +813,15 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
                 lit += light->color * lambert * atten;
             }
 
-            vertices[v + 16] = glm::min(lit.r, 1.0f);
-            vertices[v + 17] = glm::min(lit.g, 1.0f);
-            vertices[v + 18] = glm::min(lit.b, 1.0f);
+            // Hue-preserving clamp — see the note in sampleLightAt(), and keep
+            // the two identical or a mover will tint differently to the floor
+            // it stands on wherever the light overflows.
+            float peak = glm::max(lit.r, glm::max(lit.g, lit.b));
+            if (peak > 1.0f) lit /= peak;
+
+            vertices[v + 16] = lit.r;
+            vertices[v + 17] = lit.g;
+            vertices[v + 18] = lit.b;
         }
 
         std::fprintf(stderr, "  baked %zu verts against %zu lights\n",
