@@ -374,6 +374,10 @@ extern int lightModeLoc, objectLightLoc, textModeLoc;
 
 unsigned int compileShader(GLenum type, const char* src);
 
+int initWindow();
+
+void buildShaderProgram();
+
 unsigned int loadTexture(const char* path);
 
 std::vector<int> textureDimensions(const char* path);

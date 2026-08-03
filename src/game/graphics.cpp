@@ -148,6 +148,79 @@ unsigned int compileShader(GLenum type, const char* src)
 }
 
 
+int initWindow()
+{
+    if (!glfwInit()) { std::fprintf(stderr, "failed to init GLFW\n"); return -1; }
+
+    GLFWmonitor* moniter = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(moniter);
+    SW = mode->width;
+    SH = mode->height;
+    lastX = SW/2, lastY = SH/2;
+    
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    window = glfwCreateWindow(SW, SH, "Game", moniter, nullptr);
+    if (!window) { std::fprintf(stderr, "Failed to create window\n"); glfwTerminate(); return -1; }
+    glfwSetWindowPos(window, 0, 0);
+    glfwMakeContextCurrent(window);
+
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    { std::fprintf(stderr, "Failed to init GLAD\n"); glfwTerminate(); return -1; }
+
+    glEnable(GL_DEPTH_TEST);
+    return 0;
+}
+
+
+void buildShaderProgram() {
+
+    // --- build the shader program ---
+    vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
+    fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
+    shaderProgram = glCreateProgram();
+
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+
+    int linked = 0;
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linked);
+    if (!linked)
+    {
+        char log[512];
+        glGetProgramInfoLog(shaderProgram, sizeof(log), nullptr, log);
+        std::fprintf(stderr, "Program link error:\n%s\n", log);
+    }
+
+    modelLoc      = glGetUniformLocation(shaderProgram, "model");
+    viewLoc       = glGetUniformLocation(shaderProgram, "view");
+    projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+
+    lightModeLoc   = glGetUniformLocation(shaderProgram, "LightMode");
+    objectLightLoc = glGetUniformLocation(shaderProgram, "ObjectLight");
+    textModeLoc = glGetUniformLocation(shaderProgram, "TextMode");
+
+    // The individual shaders are now baked into the program; we can delete them.
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    
+    // Tell the "tex0" sampler to read from texture unit 0 (set once).
+    glUseProgram(shaderProgram);
+    glUniform1i(glGetUniformLocation(shaderProgram, "tex0"), 0);
+
+    // Stage 3: bind-pose palette is all-identity, so skinning is a no-op.
+    // (Stage 4 replaces this with a per-frame Aⱼ·Bⱼ⁻¹ palette.)
+    boneMatricesLoc = glGetUniformLocation(shaderProgram, "boneMatrices");
+    std::vector<glm::mat4> identity(MAX_BONES, glm::mat4(1.0f));
+    glUniformMatrix4fv(boneMatricesLoc, MAX_BONES, GL_FALSE, glm::value_ptr(identity[0]));
+}
+
+
 // Load a PNG/JPG from `path` into a new GL texture and return its id.
 unsigned int loadTexture(const char* path)
 {
@@ -1055,20 +1128,22 @@ void resolvePlayerCollision(Player& player)
                 pushDir = faceNormal;
                 depth   = player.radius;
             }
-
-            player.transform.x += pushDir.x * depth;
+            
             player.transform.y += pushDir.y * depth;
-            player.transform.z += pushDir.z * depth;
+            
+            if (pushDir.y > GROUND_NORMAL_Y) {
+                player.grounded = true;
+                // Cancel only the component of motion heading into the surface for y
+                player.velocity.y -= pushDir.y * glm::min(0.0f, glm::dot(player.velocity.y, pushDir.y));
+            } else {
+                // only push player on x and z if its not a ground tri
+                player.transform.x += pushDir.x * depth;
+                player.transform.z += pushDir.z * depth;
 
-            // Cancel only the component of motion heading into the surface —
-            // Quake's ClipVelocity. Tangential motion survives, which is what
-            // makes a player slide along a wall instead of sticking to it. A
-            // no-op while movement writes position directly; it starts mattering
-            // the moment gravity puts something in `velocity`.
-            player.velocity -= pushDir * glm::min(0.0f, glm::dot(player.velocity, pushDir));
-
-            if (pushDir.y > GROUND_NORMAL_Y) player.grounded = true;
-
+                // Cancel only the component of motion heading into the surface
+                player.velocity -= pushDir * glm::min(0.0f, glm::dot(player.velocity, pushDir));
+                
+            }
             hitAny = true;
         }
 

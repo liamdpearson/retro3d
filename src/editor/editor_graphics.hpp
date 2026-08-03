@@ -219,13 +219,6 @@ struct FbxMesh : Mesh
 };
 
 
-struct PlayerMesh : Mesh
-{
-    float radius;
-    float height;
-};
-
-
 struct Camera : Object
 {
     float FOV;
@@ -361,9 +354,6 @@ ObjMesh makeObj(const char* objPath, const char* texPath,
 // for animated objects
 FbxMesh makeFbx(const char* objPath, const char* texPath,
              Transform Transform, bool isStatic);
-
-PlayerMesh makePlayerMesh(const char* objPath, const char* texPath,
-             Transform transform, float radius, float height);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 

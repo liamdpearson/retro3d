@@ -9,9 +9,20 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 }
 
 
-void removeChild(std::vector<Object*>& children, const Object* child)
+void mouseCallback(GLFWwindow*, double xpos, double ypos)
 {
-    children.erase(std::remove(children.begin(), children.end(), child), children.end());
+    if (firstMouse) { lastX = (float)xpos; lastY = (float)ypos; firstMouse = false; }
+
+    float xoffset = (float)(xpos - lastX);
+    float yoffset = (float)(lastY - ypos);
+    lastX = float(xpos);
+    lastY = float(ypos);
+
+    player.transform.yaw -= xoffset * sensitivity;
+    camera.transform.pitch -= yoffset * sensitivity;
+
+    if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
+    if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
 }
 
 
@@ -20,6 +31,7 @@ int main()
     initWindow();
     buildShaderProgram();
     glfwSetKeyCallback(window, key_callback);
+    glfwSetCursorPosCallback(window, mouseCallback);
 
 
 
@@ -58,7 +70,7 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        float acceleration = 15.0f * deltaTime; // deltaTime keeps speed steady regardless of FPS
+        float acceleration = 30.0f * deltaTime; // deltaTime keeps speed steady regardless of FPS
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
@@ -84,7 +96,7 @@ int main()
         player.velocity.y -= 9.81f * deltaTime;
         if (player.velocity.y < -50.0f) player.velocity.y = -50.0f;
 
-        float damping = powf(0.05f, deltaTime);
+        float damping = powf(0.005f, deltaTime);
         player.velocity.x *= damping;
         player.velocity.z *= damping;
         
@@ -133,6 +145,8 @@ int main()
         for (UIElement*& ui : uiElements) drawUIElement(*ui);
 
         fpsLabel.text = "FPS: " + std::to_string(int(1/deltaTime));
+
+        if (player.grounded) fpsLabel.text += "\ngrounded";
 
         drawText(fpsLabel);
 

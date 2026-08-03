@@ -96,6 +96,16 @@ static void handleFbxInput(int key, FbxMesh*& fbx) {
 }
 
 
+static void handlePlayerMeshInput(int key, Object*& player) {
+    if (key == GLFW_KEY_4)
+    {  
+        curElement = &player->transform.yaw;
+        editMultiplier = 1.0f;
+        return;
+    }
+}
+
+
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -123,13 +133,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     if (curObject)
     {
-        if (key == GLFW_KEY_DELETE) {
-            removeObject(curObject);
-            return;
-        }
-
         switch (key)
         {
+            case GLFW_KEY_DELETE:
+                removeObject(curObject);
+                return;
+
             case GLFW_KEY_1:
                 curElement = &curObject->transform.x;
                 editMultiplier = 0.015f;
@@ -148,6 +157,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         if (curObject->type == "light") {
             LightMesh* light = static_cast<LightMesh*>(curObject);
             handleLightInput(key, light);
+        }
+        else if (curObject->type == "player") {
+            handlePlayerMeshInput(key, curObject);
         } else {
             handleRotScale(key, curObject);
         }

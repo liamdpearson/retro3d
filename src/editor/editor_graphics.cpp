@@ -561,23 +561,6 @@ FbxMesh makeFbx(const char* objPath, const char* texPath,
 }
 
 
-PlayerMesh makePlayerMesh(const char* objPath, const char* texPath,
-             Transform transform, float radius, float height)
-{
-    PlayerMesh obj;
-    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
-    obj.transform = transform;
-    obj.world = transform.matrix();
-    obj.texture = loadTexture(texPath);
-    obj.indexCount = (GLsizei)obj.indices.size();
-
-    obj.radius = radius;
-    obj.height = height;
-
-    return obj;
-}
-
-
 UIElement makeUIElement(const char* texPath, float x, float y, float scale)
 {
     UIElement ui;

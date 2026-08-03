@@ -208,13 +208,13 @@ static Object* buildNode(const json& j, Object* parent)
         // the node — assigning the node directly here would just be overwritten.
         const json& p = j.at("position");
         transform = Transform{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>(),
-                              0.0f, 0.0f, 0.0f, 1.0f};
+                              j.at("yaw").get<float>(), 0.0f, 0.0f, 1.0f};
 
-        node = new PlayerMesh(
-            makePlayerMesh(
+        node = new Mesh(
+            makeMesh(
                 "assets/engine_assets/player/player.obj",
                 "assets/engine_assets/player/player.png",
-                transform, j.at("radius"), j.at("height")
+                transform
             )
         );
     }
@@ -291,12 +291,11 @@ static json objectToJson(Object* node)
         return j; // lights carry no transform/children in the scene format
     }
 
-    if (PlayerMesh* player = dynamic_cast<PlayerMesh*>(node))
+    if (node->type == "player")
     {
-        j["name"]      = player->name;
-        j["position"]  = { player->transform.x, player->transform.y, player->transform.z };
-        j["radius"]    = player->radius;
-        j["height"]    = player->height;
+        j["name"]      = node->name;
+        j["position"]  = { node->transform.x, node->transform.y, node->transform.z };
+        j["yaw"]       = node->transform.yaw;
         j["type"]      = "player";
 
         j["children"] = json::array();
@@ -333,8 +332,7 @@ static json objectToJson(Object* node)
         j["fov"]  = cam->FOV;
         j["type"] = "camera";
     }
-    else if (PlayerMesh* player = dynamic_cast<PlayerMesh*>(node))
-    {}
+    else if (node->type == "player") {}
     else // pivot, or anything else with no packed fields
     {
         j["name"] = node->name;

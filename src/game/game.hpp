@@ -95,10 +95,7 @@ static Object* buildNode(const json& j, Object* parent)
         // the node — assigning player.transform here would just be overwritten.
         const json& p = j.at("position");
         transform = Transform{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>(),
-                              0.0f, 0.0f, 0.0f, 1.0f};
-
-        player.radius = j.value("radius", 0.3f);
-        player.height = j.value("height", 1.8f);
+                              j.at("yaw").get<float>(), 0.0f, 0.0f, 1.0f};
         node = &player;
     }
     else
@@ -150,95 +147,4 @@ void importScene(const char* path)
         fprintf(stderr, "importScene: '%s': %s\n", path, e.what());
     }
     
-}
-
-
-void mouseCallback(GLFWwindow*, double xpos, double ypos)
-{
-    if (firstMouse) { lastX = (float)xpos; lastY = (float)ypos; firstMouse = false; }
-
-    float xoffset = (float)(xpos - lastX);
-    float yoffset = (float)(lastY - ypos);
-    lastX = float(xpos);
-    lastY = float(ypos);
-
-    player.transform.yaw -= xoffset * sensitivity;
-    camera.transform.pitch -= yoffset * sensitivity;
-
-    if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
-    if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
-}
-
-
-int initWindow()
-{
-    if (!glfwInit()) { std::fprintf(stderr, "failed to init GLFW\n"); return -1; }
-
-    GLFWmonitor* moniter = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(moniter);
-    SW = mode->width;
-    SH = mode->height;
-    lastX = SW/2, lastY = SH/2;
-    
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-    window = glfwCreateWindow(SW, SH, "Game", moniter, nullptr);
-    if (!window) { std::fprintf(stderr, "Failed to create window\n"); glfwTerminate(); return -1; }
-    glfwSetWindowPos(window, 0, 0);
-    glfwMakeContextCurrent(window);
-
-    glfwSetCursorPosCallback(window, mouseCallback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    { std::fprintf(stderr, "Failed to init GLAD\n"); glfwTerminate(); return -1; }
-
-    glEnable(GL_DEPTH_TEST);
-    return 0;
-}
-
-
-void buildShaderProgram() {
-
-    // --- build the shader program ---
-    vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
-    fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
-    shaderProgram = glCreateProgram();
-
-    glAttachShader(shaderProgram, vs);
-    glAttachShader(shaderProgram, fs);
-    glLinkProgram(shaderProgram);
-
-    int linked = 0;
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linked);
-    if (!linked)
-    {
-        char log[512];
-        glGetProgramInfoLog(shaderProgram, sizeof(log), nullptr, log);
-        std::fprintf(stderr, "Program link error:\n%s\n", log);
-    }
-
-    modelLoc      = glGetUniformLocation(shaderProgram, "model");
-    viewLoc       = glGetUniformLocation(shaderProgram, "view");
-    projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-
-    lightModeLoc   = glGetUniformLocation(shaderProgram, "LightMode");
-    objectLightLoc = glGetUniformLocation(shaderProgram, "ObjectLight");
-    textModeLoc = glGetUniformLocation(shaderProgram, "TextMode");
-
-    // The individual shaders are now baked into the program; we can delete them.
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-    
-    // Tell the "tex0" sampler to read from texture unit 0 (set once).
-    glUseProgram(shaderProgram);
-    glUniform1i(glGetUniformLocation(shaderProgram, "tex0"), 0);
-
-    // Stage 3: bind-pose palette is all-identity, so skinning is a no-op.
-    // (Stage 4 replaces this with a per-frame Aⱼ·Bⱼ⁻¹ palette.)
-    boneMatricesLoc = glGetUniformLocation(shaderProgram, "boneMatrices");
-    std::vector<glm::mat4> identity(MAX_BONES, glm::mat4(1.0f));
-    glUniformMatrix4fv(boneMatricesLoc, MAX_BONES, GL_FALSE, glm::value_ptr(identity[0]));
 }
