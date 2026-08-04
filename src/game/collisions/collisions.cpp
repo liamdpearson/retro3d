@@ -1,5 +1,8 @@
 #include "collisions.h"
 
+
+// dont ask me how this function works Claude generated it.
+//
 // Möller–Trumbore for a single triangle, returning the hit distance rather than
 // just whether it hit. Two-sided like rayOccluded(); on a hit in front of the
 // origin it writes the distance along `dir` to `outT` and returns true. `dir`
@@ -33,8 +36,10 @@ static bool rayTriangle(const glm::vec3& origin, const glm::vec3& dir,
 }
 
 // recursion half of the raycast walk. just here so meshes which 
-// are children of empty nodes dont get left out. doesn't have to
-// calculate the worlds because these are run after Compose()
+// are children of empty nodes dont get left out. doesn't need to
+// accept parentWorld as an argument because raycasts are shot
+// after the first Compose() call, meaning the childrens world
+// matrices are initialized.
 void Object::Raycast(const glm::vec3& origin, const glm::vec3& dir,
                      float& closest, Object*& hit)
 {
@@ -118,8 +123,7 @@ void collectSceneColliders()
     for (Object*& obj : parents) obj->CollectColliders(glm::mat4(1.0f), colliders);
 }
 
-// builds the player AABB. just uses the players feet position 
-// and saves two points as the two corners of the box.
+// builds the player AABB.
 static AABB playerBounds(const Player& player)
 {
     glm::vec3 feet(player.transform.x, player.transform.y, player.transform.z);
@@ -139,7 +143,11 @@ static AABB triBounds(const Tri& t)
     return box;
 }
 
-// Closest point to `p` on the segment ab.
+// Closest point to `p` on the segment ab.  EX:           p
+//                                          EX:        <-------a---------b------>
+//
+//                                      RESULT:        <-------p---------b------>
+
 static glm::vec3 closestPointOnSegment(const glm::vec3& p,
                                        const glm::vec3& a, const glm::vec3& b)
 {
@@ -150,6 +158,8 @@ static glm::vec3 closestPointOnSegment(const glm::vec3& p,
     return a + ab * glm::clamp(glm::dot(p - a, ab) / len2, 0.0f, 1.0f);
 }
 
+// dont ask me how this function works Claude generated it.
+//
 // Closest point to `p` on triangle t. The branches walk the triangle's Voronoi
 // regions, so this is correct whether the nearest feature is the face interior,
 // one of the three edges, or one of the three corners — which is exactly the
@@ -185,21 +195,17 @@ static glm::vec3 closestPointOnTriangle(const glm::vec3& p, const Tri& t)
     return t.a + ab * (vb * denom) + ac * (vc * denom);
 }
 
-// How floor-like a surface has to be to stand on: the Y component of its normal,
-// so 0.7 is roughly a 45 degree slope. Steeper than that is a wall — the player
-// still slides along it, just never counts as grounded on it.
+// the minimum y component of a triangles normal to be considered the ground
 static const float GROUND_NORMAL_Y = 0.7f;
 
-// Resolve the player against the static collision world.
+// resolves the players collisions with the static world.
 //
-// Positional depenetration rather than a swept trace: let the move happen, then
-// push back out of whatever it ended up inside. Sliding falls out for free,
-// because the push is always along the contact normal and so leaves any motion
-// parallel to the surface untouched.
-//
-// Iterated because fixing one contact can push the capsule into another — an
-// inside corner needs two passes to settle — and it stops early on the first
-// pass that finds nothing left to fix, which is the common case.
+// starts by checking if the players AABB overlaps with any of the triangle's 
+// AABB's. if so it calculates the depth and direction of where the player is
+// colliding and pushes player out of it. runs this check and push loop multiple
+// times per frame just in case one triangle pushed player into another triangle.
+// if tri normal y is greater than GROUND_NORMAL_Y then only push up for that 
+// tri. (so player doesnt slide off slopes that humans could walk on)
 void resolvePlayerCollision(Player& player)
 {
     const int MAX_ITERATIONS = 4;

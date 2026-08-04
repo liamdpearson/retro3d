@@ -2,7 +2,7 @@
 
 #include "../graphics/graphics.h"
 
-// Sample all lights at one world-space point, for lighting a whole mover at once.
+// sample all lights at one world-space point, for lighting a whole mover at once.
 glm::vec3 sampleLightAt(const glm::vec3& p);
 
 // bakes the scene's static objects and initializes the light grid for dynamic 

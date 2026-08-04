@@ -1,6 +1,7 @@
 #include "lighting.h"
 
-
+// dont ask me how this function works Claude generated it.
+//
 // Möller–Trumbore. Two-sided on purpose: the back face of a closed mesh blocks
 // light just as well as the front, so there's no winding cull here. Returns on
 // the first hit — a shadow ray only cares *whether* something blocks, not what.
@@ -33,11 +34,8 @@ static bool rayOccluded(const glm::vec3& origin, const glm::vec3& dir,
     return false;
 }
 
-// Sample every light at a single world-space point. Deliberately has no normal
-// term: the caller applies one value to a whole mesh, so there is no surface to
-// take a lambert against. Brightness therefore falls off with distance alone.
-// Keep the attenuation curve identical to bakeObjectLighting()'s, or movers and
-// the baked floor beneath them will disagree about how bright the room is.
+
+// shoots rays at each light in the scene and adds the 
 glm::vec3 sampleLightAt(const glm::vec3& p)
 {
     glm::vec3 lit(lightAmbient);
@@ -54,29 +52,22 @@ glm::vec3 sampleLightAt(const glm::vec3& p)
         lit += light->color * atten;
     }
 
-    // Normalize by the brightest channel rather than clamping each one: a
-    // per-channel min() pulls the channels toward each other, so an overbright
-    // yellow light washes out to white. Scaling keeps the hue and spends the
-    // overflow on brightness instead. Must match Mesh::BakeLighting()'s clamp.
+    // if r, g, or b is over 1.0f then divide them all by the largest one. this
+    // will force the values between 0 and 1 while still preserving the hue
     float peak = glm::max(lit.r, glm::max(lit.g, lit.b));
     if (peak > 1.0f) lit /= peak;
 
     return lit;
 }
 
-// Pass 1, recursion half. A mesh-less node contributes no triangles; it still
-// composes its transform into the world matrix its children are gathered with,
-// so a pivot above static geometry moves that geometry's shadows with it.
+// the recursion half of the occluders pass
 void Object::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();
     for (Object*& child : children) child->CollectOccluders(world, out);
 }
 
-// Pass 1, geometry half. Flatten every static triangle in the scene into world
-// space. Occlusion is a scene-wide property, so this must run over the whole
-// graph before any vertex is baked. Dynamic objects are deliberately skipped:
-// they move, and a shadow baked from them would not.
+// the geometry half of the occluders pass
 void Mesh::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();
@@ -97,31 +88,28 @@ void Mesh::CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out)
         }
     }
 
-    // Chain with parentWorld, NOT the composed world above: the base recomposes
-    // this node's transform itself. Passing `world` here would apply this mesh's
-    // transform twice to every descendant — silent, and geometrically plausible.
+    // pass parentWorld not world because you already apply the local transform
+    // matrix above and you must apply it in the Object version because not every
+    // object is a mesh.
     Object::CollectOccluders(parentWorld, out);
 }
 
-// Pass 2, recursion half. See CollectOccluders() above for why this composes.
+// the recursion half of the lighting bake
 void Object::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
 {
     glm::mat4 world = parentWorld * transform.matrix();
     for (Object*& child : children) child->BakeLighting(world, occluders);
 }
 
-// Pass 2, geometry half. Bake per-vertex irradiance into the last 3 floats of
-// every static vertex. parentWorld mirrors the composition Draw() does, so
-// static children of a static parent bake in their true world position.
+// the geometry half of the lighting bake
 void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders)
 {
     glm::mat4 world = parentWorld * transform.matrix();
 
     if (isStatic)
     {
-        // Inverse-transpose so normals survive any non-uniform scale baked into
-        // the geometry by loadFBX. Transform only ever applies uniform scale, but
-        // this costs nothing here and is correct either way.
+        // create normal transformation matrix which is to guard against non-uniform scaling
+        // altering the normals. however, currently non-uniform scaling isnt in this engine.
         glm::mat3 normalMat = glm::transpose(glm::inverse(glm::mat3(world)));
 
         for (size_t v = 0; v + VERTEX_FLOATS <= vertices.size(); v += VERTEX_FLOATS)
@@ -129,8 +117,8 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
             glm::vec3 localPos(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
             glm::vec3 localNrm(vertices[v + 5], vertices[v + 6], vertices[v + 7]);
 
-            glm::vec3 worldPos = glm::vec3(world * glm::vec4(localPos, 1.0f));
-            glm::vec3 n = glm::normalize(normalMat * localNrm);
+            glm::vec3 worldPos = glm::vec3(world * glm::vec4(localPos, 1.0f)); // get world pos
+            glm::vec3 n = glm::normalize(normalMat * localNrm);                // get world norm
 
             glm::vec3 lit(lightAmbient);
 
@@ -144,9 +132,7 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
                 float lambert = glm::max(glm::dot(n, l), 0.0f);
                 if (lambert <= 0.0f) continue;   // facing away, no contribution
 
-                // Lift the ray off the surface before firing it. Without this the
-                // vertex re-hits the very triangles it sits on and every surface
-                // shadows itself — the classic acne speckle.
+                // lift ray off surface so vert doesnt hit itself
                 glm::vec3 origin = worldPos + n * SHADOW_BIAS;
                 if (rayOccluded(origin, l, dist, occluders)) continue;
 
@@ -157,9 +143,7 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
                 lit += light->color * lambert * atten;
             }
 
-            // Hue-preserving clamp — see the note in sampleLightAt(), and keep
-            // the two identical or a mover will tint differently to the floor
-            // it stands on wherever the light overflows.
+            // hue preservation see sample light at
             float peak = glm::max(lit.r, glm::max(lit.g, lit.b));
             if (peak > 1.0f) lit /= peak;
 
@@ -172,7 +156,7 @@ void Mesh::BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& oc
                      vertices.size() / VERTEX_FLOATS, lights.size());
     }
 
-    // parentWorld, not world — see the note in Mesh::CollectOccluders().
+    // parentWorld not world. see the note in Mesh::CollectOccluders().
     Object::BakeLighting(parentWorld, occluders);
 }
 

@@ -35,6 +35,23 @@
             "type": "mesh-obj"
         },
         {
+            "children": [],
+            "isStatic": false,
+            "name": "knight",
+            "obj src": "assets/knight/knight.fbx",
+            "tex src": "assets/knight/knight.png",
+            "transform": [
+                -3.810002088546753,
+                1.9849872589111328,
+                0.600000262260437,
+                0.0,
+                0.0,
+                0.0,
+                0.3599998950958252
+            ],
+            "type": "mesh-fbx"
+        },
+        {
             "children": [
                 {
                     "children": [
@@ -88,12 +105,12 @@
             ],
             "name": "player",
             "position": [
-                -1.4249800443649292,
-                3.0349974632263184,
-                1.2899987697601318
+                -1.3199797868728638,
+                2.9599928855895996,
+                0.9899985790252686
             ],
             "type": "player",
-            "yaw": -41.0
+            "yaw": -70.0
         }
     ]
 }

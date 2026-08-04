@@ -96,6 +96,17 @@ struct BoneTrack
     std::vector<glm::vec3> scale;
 };
 
+// One bone's local transform at a single instant. Kept as TRS rather than a
+// matrix so two poses can be blended joint by joint (slerp on the rotation)
+// before the hierarchy walk folds them together — blending the matrices instead
+// shears the bones as they cross over.
+struct BonePose
+{
+    glm::vec3 pos{0.0f};
+    glm::quat rot{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f};
+};
+
 struct Animation
 {
     std::string name;      // the FBX anim-stack name, used to select clips by name
@@ -170,6 +181,15 @@ struct Mesh : Object
     int currentAnim = -1;   // index into `animations` of the clip currently playing
     float animTime = 0.0f; // seconds into the current clip added to each frame
 
+    // Cross-fade state. `lastPose` is the local pose computePose() actually put on
+    // screen last frame; SetAnimation() copies it into `blendFrom` so the armature
+    // can ease out of it instead of snapping. While blendDuration > 0 the pose is
+    // blendFrom -> new clip, weighted by blendElapsed / blendDuration.
+    std::vector<BonePose> lastPose;
+    std::vector<BonePose> blendFrom;
+    float blendDuration = 0.0f; // 0 means "not blending"
+    float blendElapsed = 0.0f;
+
     Mesh() = default;
 
     void Upload() override;
@@ -181,8 +201,13 @@ struct Mesh : Object
 
     // Select which baked clip plays. Both reset animTime so the new clip starts
     // from its first frame. The string form returns false if no clip matches.
-    void SetAnimation(int index);
-    bool SetAnimation(const std::string& name);
+    //
+    // `blendTime` is how many seconds the armature spends easing out of the pose
+    // it is currently in and into the new clip — 0 (the default) snaps, as it
+    // always used to. A mesh that has never been drawn has no pose to leave, so
+    // its first clip starts instantly whatever blendTime says.
+    void SetAnimation(int index, float blendTime = 0.0f);
+    bool SetAnimation(const std::string& name, float blendTime = 0.0f);
 
     ~Mesh() override;
 };
@@ -323,6 +348,10 @@ extern int boneMatricesLoc;
 extern int lightModeLoc, objectLightLoc, textModeLoc;
 
 unsigned int compileShader(GLenum type, const char* src);
+
+int initWindow();
+
+void buildShaderProgram();
 
 unsigned int loadTexture(const char* path);
 

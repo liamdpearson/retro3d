@@ -1,7 +1,6 @@
-#include "editor.hpp"
+#include "editor.h"
 
 using json = nlohmann::json;
-
 
 static void handleLightInput(int key, LightMesh*& light) {
     switch (key)
@@ -33,7 +32,6 @@ static void handleLightInput(int key, LightMesh*& light) {
     }
 }
 
-
 static void handleRotScale(int key, Object*& obj) {
     switch (key)
     {
@@ -59,7 +57,6 @@ static void handleRotScale(int key, Object*& obj) {
     }
 }
 
-
 static void handleObjInput(int key, ObjMesh*& obj) {
     switch (key)
     {
@@ -72,7 +69,6 @@ static void handleObjInput(int key, ObjMesh*& obj) {
             return;
     }
 }
-
 
 static void handleFbxInput(int key, FbxMesh*& fbx) {
     switch (key)
@@ -95,6 +91,14 @@ static void handleFbxInput(int key, FbxMesh*& fbx) {
     }
 }
 
+static void handleCamInput(int key, CameraMesh*& cam) {
+    if (key == GLFW_KEY_8)
+    {  
+        curElement = &cam->FOV;
+        editMultiplier = 0.25f;
+        return;
+    }
+}
 
 static void handlePlayerMeshInput(int key, Object*& player) {
     if (key == GLFW_KEY_4)
@@ -172,6 +176,33 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             FbxMesh* fbx = static_cast<FbxMesh*>(curObject);
             handleFbxInput(key, fbx);
         }
+        else if (curObject->type == "camera") {
+            CameraMesh* cam = static_cast<CameraMesh*>(curObject);
+            handleCamInput(key, cam);
+        }
+    }
+}
+
+
+void mouseCallback(GLFWwindow*, double xpos, double ypos)
+{
+    if (firstMouse) { lastX = (float)xpos; lastY = (float)ypos; firstMouse = false; }
+
+    float xoffset = (float)(xpos - lastX);
+    float yoffset = (float)(lastY - ypos);
+    lastX = float(xpos);
+    lastY = float(ypos);
+
+    if (curElement && rightHeld)
+    {
+        *curElement += xoffset * editMultiplier;
+        *curElement += yoffset * editMultiplier;
+    } else {
+        camera.transform.yaw -= xoffset * sensitivity;
+        camera.transform.pitch -= yoffset * sensitivity;
+
+        if (camera.transform.pitch > 89.0f) camera.transform.pitch = 89.0f;
+        if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
     }
 }
 
@@ -181,6 +212,7 @@ int main()
     initWindow();
     buildShaderProgram();
     glfwSetKeyCallback(window, key_callback);
+    glfwSetCursorPosCallback(window, mouseCallback);
 
     importScene("scene.json");
     parents.push_back(&camera);

@@ -164,6 +164,14 @@ int initWindow()
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+    // Bypass the OS pointer-acceleration curve ("enhance pointer precision") and
+    // read the mouse's own counts, so a given hand movement always turns the view
+    // the same amount regardless of how fast it was made. Only works with the
+    // cursor disabled, and only where the platform supports it — GLFW would raise
+    // an error instead of ignoring the call, so ask first.
+    if (glfwRawMouseMotionSupported())
+        glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     { std::fprintf(stderr, "Failed to init GLAD\n"); glfwTerminate(); return -1; }
 
@@ -786,9 +794,36 @@ void layoutText(UIText& t)
     }
 }
 
+// Sample `an` at time t (seconds, wrapped into the clip) into per-bone local TRS.
+// `out` is sized by the caller to the skeleton's bone count; bones the clip has no
+// track for keep whatever `out` already held.
+static void sampleClip(const Animation& an, float t, std::vector<BonePose>& out)
+{
+    // Which two frames to blend, and by how much.
+    float dur = an.duration > 0.0f ? an.duration : 1.0f;
+    float wrapped = std::fmod(t, dur);
+    if (wrapped < 0.0f) wrapped += dur;
+    float frameF = wrapped * an.fps;
+    int   f0 = (int)std::floor(frameF) % an.frameCount;
+    int   f1 = (f0 + 1) % an.frameCount;
+    float a  = frameF - std::floor(frameF);
+
+    int n = (int)std::min(out.size(), an.tracks.size());
+    for (int b = 0; b < n; b++)
+    {
+        const BoneTrack& tr = an.tracks[b];
+        out[b].pos   = glm::mix  (tr.pos[f0],   tr.pos[f1],   a);
+        out[b].rot   = glm::slerp(tr.rot[f0],   tr.rot[f1],   a);
+        out[b].scale = glm::mix  (tr.scale[f0], tr.scale[f1], a);
+    }
+}
+
 // Sample obj's baked clip at obj.animTime and fill `palette` with each bone's
 // skinning matrix Aⱼ·Bⱼ⁻¹. No skeleton/clip -> identity palette (bind pose).
-static void computePose(const Mesh& obj, std::vector<glm::mat4>& palette)
+//
+// Takes obj by non-const ref because it caches the pose it produced on the mesh
+// (and retires a finished cross-fade) — the next SetAnimation() blends out of it.
+static void computePose(Mesh& obj, std::vector<glm::mat4>& palette)
 {
     const Skeleton&  sk = obj.skeleton;
     int n = (int)sk.inverseBind.size();
@@ -798,29 +833,43 @@ static void computePose(const Mesh& obj, std::vector<glm::mat4>& palette)
     const Animation& an = obj.animations[obj.currentAnim];
     if (an.frameCount == 0) return;
 
-    // Which two frames to blend, and by how much.
-    float dur = an.duration > 0.0f ? an.duration : 1.0f;
-    float t   = std::fmod(obj.animTime, dur);
-    if (t < 0.0f) t += dur;
-    float frameF = t * an.fps;
-    int   f0 = (int)std::floor(frameF) % an.frameCount;
-    int   f1 = (f0 + 1) % an.frameCount;
-    float a  = frameF - std::floor(frameF);
+    // 1) sample the clip, then ease out of the pose the armature was left in when
+    //    the clip was switched. The target keeps advancing while the fade runs, so
+    //    the new clip plays from its first frame rather than waiting on the blend.
+    std::vector<BonePose> pose(n);
+    sampleClip(an, obj.animTime, pose);
 
-    // 1) interpolate local TRS -> local matrix (slerp for rotation, lerp for pos/scale)
+    if (obj.blendDuration > 0.0f && (int)obj.blendFrom.size() == n)
+    {
+        float w = std::clamp(obj.blendElapsed / obj.blendDuration, 0.0f, 1.0f);
+        for (int b = 0; b < n; b++)
+        {
+            pose[b].pos   = glm::mix  (obj.blendFrom[b].pos,   pose[b].pos,   w);
+            pose[b].rot   = glm::slerp(obj.blendFrom[b].rot,   pose[b].rot,   w);
+            pose[b].scale = glm::mix  (obj.blendFrom[b].scale, pose[b].scale, w);
+        }
+        if (w >= 1.0f)   // fade done — stop paying for it every frame
+        {
+            obj.blendDuration = 0.0f;
+            obj.blendElapsed = 0.0f;
+            obj.blendFrom.clear();
+        }
+    }
+
+    // Remember what actually went on screen, including a half-finished fade, so
+    // switching clips mid-blend starts from the pose the eye last saw.
+    obj.lastPose = pose;
+
+    // 2) local TRS -> local matrix
     std::vector<glm::mat4> local(n);
     for (int b = 0; b < n; b++)
     {
-        const BoneTrack& tr = an.tracks[b];
-        glm::vec3 p = glm::mix (tr.pos[f0],   tr.pos[f1],   a);
-        glm::quat q = glm::slerp(tr.rot[f0],  tr.rot[f1],   a);
-        glm::vec3 s = glm::mix (tr.scale[f0], tr.scale[f1], a);
-        local[b] = glm::translate(glm::mat4(1.0f), p)
-                 * glm::mat4_cast(q)
-                 * glm::scale(glm::mat4(1.0f), s);
+        local[b] = glm::translate(glm::mat4(1.0f), pose[b].pos)
+                 * glm::mat4_cast(pose[b].rot)
+                 * glm::scale(glm::mat4(1.0f), pose[b].scale);
     }
 
-    // 2) walk the hierarchy -> world matrices. Bones aren't guaranteed parent-first,
+    // 3) walk the hierarchy -> world matrices. Bones aren't guaranteed parent-first,
     //    so resolve iteratively until each bone's parent is ready.
     std::vector<glm::mat4> world(n);
     std::vector<char>      done(n, 0);
@@ -838,7 +887,7 @@ static void computePose(const Mesh& obj, std::vector<glm::mat4>& palette)
         if (!progressed) break;   // guard against a broken parent chain
     }
 
-    // 3) palette = animated world * inverse bind
+    // 4) palette = animated world * inverse bind
     for (int b = 0; b < n; b++) palette[b] = world[b] * sk.inverseBind[b];
 }
 
@@ -921,6 +970,7 @@ void drawObj(Mesh& obj)
     if (!obj.skeleton.inverseBind.empty())
     {
         obj.animTime += deltaTime;
+        if (obj.blendDuration > 0.0f) obj.blendElapsed += deltaTime;
         std::vector<glm::mat4> palette;
         computePose(obj, palette);
         GLsizei count = (GLsizei)std::min((size_t)MAX_BONES, palette.size());
@@ -1081,20 +1131,37 @@ void Camera::Upload()
     Object::Upload();
 }
 
-void Mesh::SetAnimation(int index)
+void Mesh::SetAnimation(int index, float blendTime)
 {
     if (index < 0 || index >= (int)animations.size()) return;
+
+    // Take the pose that's on screen right now as the start of the fade. lastPose
+    // is only filled once computePose() has run, so a mesh that has never been
+    // drawn (or one with no skeleton) has nothing to leave and just snaps.
+    if (blendTime > 0.0f && !lastPose.empty())
+    {
+        blendFrom = lastPose;
+        blendDuration = blendTime;
+        blendElapsed = 0.0f;
+    }
+    else
+    {
+        blendFrom.clear();
+        blendDuration = 0.0f;
+        blendElapsed = 0.0f;
+    }
+
     currentAnim = index;
     animTime = 0.0f;   // restart the new clip from its first frame
 }
 
-bool Mesh::SetAnimation(const std::string& name)
+bool Mesh::SetAnimation(const std::string& name, float blendTime)
 {
     for (int i = 0; i < (int)animations.size(); i++)
     {
         if (animations[i].name == name)
         {
-            SetAnimation(i);
+            SetAnimation(i, blendTime);
             return true;
         }
     }
