@@ -145,6 +145,7 @@ struct AABB
 struct Object
 {
     std::string name;
+    std::string tag;
 
     Transform transform; // local transform
 
@@ -213,7 +214,7 @@ struct Mesh : Object
 
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
-    int currentAnim = 0;   // index into `animations` of the clip currently playing
+    int currentAnim = -1;   // index into `animations` of the clip currently playing
     float animTime = 0.0f; // seconds into the current clip added to each frame
     int nextAnim = -1;
 

@@ -1,24 +1,14 @@
 #include "game.h"
 
+
 const float sensitivity = 0.05f;
 float lightAmbient = 0.3f;
 
-
+std::vector<int> keys_pressed;
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS && player.grounded) {
-        player.velocity.y += 5.0f;
-    }
-    else if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
-        Mesh* knight = static_cast<Mesh*>(parents[1]);
-        knight->SetAnimation(0, 0.5f, 1);
-    }
-    else if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
-        Mesh* knight = static_cast<Mesh*>(parents[1]);
-        knight->SetAnimation(1, 0.5f, 0);
-    }
+    if (action == GLFW_PRESS) keys_pressed.push_back(key);
 }
-
 
 void mouseCallback(GLFWwindow*, double xpos, double ypos)
 {
@@ -48,7 +38,16 @@ int main()
 
     importScene("scene.json");
 
+    Object* a = findFirst("gun", parents);
 
+    if (!a)
+        std::cout << "couldn't find gun\n";
+    Mesh* gun = dynamic_cast<Mesh*>(a);
+
+    if (!gun)
+        std::cout << "'gun' is not a Mesh\n";
+    
+    gun->SetAnimation(0);
     
     // --- init ui --- //
     // src, x, y, scale
@@ -72,14 +71,17 @@ int main()
     // --- render loop --- //
     while (!glfwWindowShouldClose(window))
     {
-        // Polled at the top so this frame acts on this frame's input. Polling
-        // after the draw meant the input block below ran on key state gathered
-        // at the end of the previous iteration.
         glfwPollEvents();
 
         float currentFrame = (float)glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+
+        if (std::find(keys_pressed.begin(), keys_pressed.end(), GLFW_MOUSE_BUTTON_1) != keys_pressed.end())
+            gun->SetAnimation(1, 0.05f, 0);
+
+        keys_pressed = {};
+
 
         float acceleration = 30.0f * deltaTime; // deltaTime keeps speed steady regardless of FPS
 

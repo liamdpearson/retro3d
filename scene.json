@@ -21,6 +21,7 @@
             "collides": true,
             "isStatic": true,
             "name": "testing_zone",
+            "tag": "",
             "obj src": "assets/testing_zone/testing_zone.obj",
             "tex src": "assets/testing_zone/testing_zone.png",
             "transform": [
@@ -38,6 +39,7 @@
             "children": [],
             "isStatic": false,
             "name": "knight",
+            "tag": "",
             "obj src": "assets/knight/knight.fbx",
             "tex src": "assets/knight/knight.png",
             "transform": [
@@ -59,7 +61,8 @@
                             "children": [],
                             "collides": false,
                             "isStatic": false,
-                            "name": "gun",
+                            "name": "triplebarrel",
+                            "tag": "gun",
                             "obj src": "assets/triplebarrel/triplebarrel.fbx",
                             "tex src": "assets/triplebarrel/triplebarrel.png",
                             "transform": [
@@ -76,6 +79,7 @@
                     ],
                     "fov": 90.0,
                     "name": "camera",
+                    "tag": "",
                     "transform": [
                         0.0,
                         1.5,
@@ -89,6 +93,7 @@
                 }
             ],
             "name": "player",
+            "tag": "",
             "position": [
                 -1.3199797868728638,
                 2.9599928855895996,

@@ -6,7 +6,6 @@
 
 using json = nlohmann::json;
 
-
 // Initializes camera - values will be written over.
 Camera camera{90.0f, glm::vec3(0.0f, 0.0f, 0.0f),
               glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)};
@@ -16,7 +15,6 @@ Player player{};
 std::vector<Object*> parents;
 std::vector<Light*> lights;
 std::vector<UIElement*> uiElements;
-
 
 // Initializes one object (and its subtree) from a scene.json entry. Returns the
 // node so the caller can parent it; null means no node was produced — either the
@@ -50,6 +48,9 @@ static Object* buildNode(const json& j, Object* parent)
                               t.at(3).get<float>(), t.at(4).get<float>(), t.at(5).get<float>(),
                               t.at(6).get<float>()};
     }
+
+    std::string tag;
+    if (j.contains("tag")) tag = j["tag"];
 
     Object* node = nullptr;
 
@@ -108,6 +109,7 @@ static Object* buildNode(const json& j, Object* parent)
     }
 
     node->name = name;
+    node->tag = tag;
     node->parent = parent;
     node->transform = transform;
     node->world = transform.matrix();
@@ -120,7 +122,6 @@ static Object* buildNode(const json& j, Object* parent)
 
     return node;
 }
-
 
 void importScene(const char* path)
 {
@@ -149,4 +150,17 @@ void importScene(const char* path)
         fprintf(stderr, "importScene: '%s': %s\n", path, e.what());
     }
     
+}
+
+Object* findFirst(std::string tag, std::vector<Object*> vec)
+{
+    for (Object*& obj : vec)
+    {
+        if (obj->tag == tag)
+            return obj;
+        
+        if (Object* found = findFirst(tag, obj->children))
+            return found;
+    }
+    return nullptr;
 }
