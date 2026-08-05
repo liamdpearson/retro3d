@@ -9,13 +9,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS && player.grounded) {
         player.velocity.y += 5.0f;
     }
-    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
+    else if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
         Mesh* knight = static_cast<Mesh*>(parents[1]);
-        knight->SetAnimation(0, 0.5f);
+        knight->SetAnimation(0, 0.5f, 1);
     }
-    if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
+    else if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
         Mesh* knight = static_cast<Mesh*>(parents[1]);
-        knight->SetAnimation(1, 0.5f);
+        knight->SetAnimation(1, 0.5f, 0);
     }
 }
 

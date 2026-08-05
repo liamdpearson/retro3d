@@ -56,37 +56,22 @@
                 {
                     "children": [
                         {
-                            "children": [
-                                {
-                                    "children": [],
-                                    "collides": false,
-                                    "isStatic": false,
-                                    "name": "gun",
-                                    "obj src": "assets/gun/gun.obj",
-                                    "tex src": "assets/gun/gun.png",
-                                    "transform": [
-                                        0.0,
-                                        0.0,
-                                        -1.1000027656555176,
-                                        -90.0,
-                                        0.0,
-                                        0.0,
-                                        6.240025043487549
-                                    ],
-                                    "type": "mesh-obj"
-                                }
-                            ],
-                            "name": "pivot1",
+                            "children": [],
+                            "collides": false,
+                            "isStatic": false,
+                            "name": "gun",
+                            "obj src": "assets/triplebarrel/triplebarrel.fbx",
+                            "tex src": "assets/triplebarrel/triplebarrel.png",
                             "transform": [
-                                0.08500529825687408,
-                                -0.11000020056962967,
-                                -0.07499873638153076,
-                                5.0,
+                                0.07500001043081284,
+                                -0.07500000298023224,
+                                -0.11000338196754456,
                                 0.0,
                                 0.0,
-                                0.05999987572431564
+                                0.0,
+                                0.16000472009181976
                             ],
-                            "type": "pivot"
+                            "type": "mesh-fbx"
                         }
                     ],
                     "fov": 90.0,

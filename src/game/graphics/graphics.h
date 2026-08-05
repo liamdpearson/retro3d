@@ -213,8 +213,9 @@ struct Mesh : Object
 
     Skeleton skeleton;
     std::vector<Animation> animations; // all clips baked from the FBX (one per anim stack)
-    int currentAnim = -1;   // index into `animations` of the clip currently playing
+    int currentAnim = 0;   // index into `animations` of the clip currently playing
     float animTime = 0.0f; // seconds into the current clip added to each frame
+    int nextAnim = -1;
 
     // Cross-fade state. `lastPose` is the local pose computePose() actually put on
     // screen last frame; SetAnimation() copies it into `blendFrom` so the armature
@@ -246,8 +247,8 @@ struct Mesh : Object
     // it is currently in and into the new clip — 0 (the default) snaps, as it
     // always used to. A mesh that has never been drawn has no pose to leave, so
     // its first clip starts instantly whatever blendTime says.
-    void SetAnimation(int index, float blendTime = 0.0f);
-    bool SetAnimation(const std::string& name, float blendTime = 0.0f);
+    void SetAnimation(int index, float blendTime = 0.0f, int nextAnim = -1);
+    bool SetAnimation(const std::string& name, float blendTime = 0.0f, int nextAnim = -1);
 
     ~Mesh() override;
 };

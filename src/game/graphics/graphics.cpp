@@ -970,6 +970,10 @@ void drawObj(Mesh& obj)
     if (!obj.skeleton.inverseBind.empty())
     {
         obj.animTime += deltaTime;
+        if (obj.nextAnim != -1) {
+            if (obj.animations[obj.currentAnim].duration - obj.animTime <= 0)
+                { obj.SetAnimation(obj.nextAnim, 0.5f); obj.nextAnim = -1; }
+        }
         if (obj.blendDuration > 0.0f) obj.blendElapsed += deltaTime;
         std::vector<glm::mat4> palette;
         computePose(obj, palette);
@@ -1049,7 +1053,7 @@ void clearBG(float r, float g, float b, float a)
     glm::mat4 projection = glm::perspective(
         glm::radians(camera.FOV),            // vertical field of view
         (float)fbw / (float)fbh,             // aspect ratio
-        0.1f, 100.0f);                       // near & far clip planes
+        0.01f, 100.0f);                       // near & far clip planes
     
     glm::mat4 view = glm::lookAt(
         camera.pos,         // camera position (Step 5 fills these in)
@@ -1131,7 +1135,7 @@ void Camera::Upload()
     Object::Upload();
 }
 
-void Mesh::SetAnimation(int index, float blendTime)
+void Mesh::SetAnimation(int index, float blendTime, int nextAnim)
 {
     if (index < 0 || index >= (int)animations.size()) return;
 
@@ -1153,15 +1157,16 @@ void Mesh::SetAnimation(int index, float blendTime)
 
     currentAnim = index;
     animTime = 0.0f;   // restart the new clip from its first frame
+    this->nextAnim= nextAnim;
 }
 
-bool Mesh::SetAnimation(const std::string& name, float blendTime)
+bool Mesh::SetAnimation(const std::string& name, float blendTime, int nextAnim)
 {
     for (int i = 0; i < (int)animations.size(); i++)
     {
         if (animations[i].name == name)
         {
-            SetAnimation(i, blendTime);
+            SetAnimation(i, blendTime, nextAnim);
             return true;
         }
     }

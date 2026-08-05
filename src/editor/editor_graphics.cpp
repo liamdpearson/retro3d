@@ -19,7 +19,7 @@ float pitch = 0.0f;
 float lastX, lastY;   // last mouse pos (start at screen center)
 bool  firstMouse = true;
 
-const float sensitivity = 0.1f;
+const float sensitivity = 0.05f;
 float deltaTime = 0.0f, lastFrame = 0.0f;  // for frame-rate-independent speed
 
 GLFWwindow* window;
