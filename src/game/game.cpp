@@ -1,16 +1,48 @@
 #include "game.h"
 
 
-const float sensitivity = 0.05f;
+const float sensitivity = 0.25f;
 float lightAmbient = 0.3f;
 
 std::vector<int> keys_pressed;
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+std::vector<int> mouse_buttons_pressed;
+
+std::vector<int> keys_released;
+std::vector<int> mouse_buttons_released;
+
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (action == GLFW_PRESS) keys_pressed.push_back(key);
+    if (action == GLFW_RELEASE) keys_released.push_back(key);
 }
 
-void mouseCallback(GLFWwindow*, double xpos, double ypos)
+bool keyPressed(int key)
+{
+    return std::find(keys_pressed.begin(), keys_pressed.end(), key) != keys_pressed.end();
+}
+
+bool keyReleased(int key)
+{
+    return std::find(keys_released.begin(), keys_released.end(), key) != keys_released.end();
+}
+
+void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+    if (action == GLFW_PRESS) mouse_buttons_pressed.push_back(button);
+    if (action == GLFW_RELEASE) mouse_buttons_released.push_back(button);
+}
+
+bool mouseButtonPressed(int button)
+{
+    return std::find(mouse_buttons_pressed.begin(), mouse_buttons_pressed.end(), button) != mouse_buttons_pressed.end();
+}
+
+bool mouseButtonReleased(int button)
+{
+    return std::find(mouse_buttons_released.begin(), mouse_buttons_released.end(), button) != mouse_buttons_released.end();
+}
+
+void mouseMoveCallback(GLFWwindow*, double xpos, double ypos)
 {
     if (firstMouse) { lastX = (float)xpos; lastY = (float)ypos; firstMouse = false; }
 
@@ -26,13 +58,57 @@ void mouseCallback(GLFWwindow*, double xpos, double ypos)
     if (camera.transform.pitch < -89.0f) camera.transform.pitch = -89.0f;
 }
 
+void movementLogic()
+{
+    float acceleration = 45.0f * deltaTime; // deltaTime keeps speed steady regardless of FPS
+
+    glm::vec3 moveDir = glm::vec3(0.0f);
+
+    glm::vec3 forward = glm::vec3(
+        -sin(glm::radians(player.transform.yaw)),
+        0.0f,
+        -cos(glm::radians(player.transform.yaw))
+    );
+
+    glm::vec3 right = glm::vec3(
+        -sin(glm::radians(player.transform.yaw + 90.0f)),
+        0.0f,
+        -cos(glm::radians(player.transform.yaw + 90.0f))
+    );
+    
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+        moveDir += forward;
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+        moveDir -= forward;
+    }
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+        moveDir += right;
+    }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+        moveDir -= right;
+    }
+    
+    if (glm::length(moveDir) > 0.0f)
+        moveDir = glm::normalize(moveDir);
+
+    player.velocity.y -= 9.81f * deltaTime;
+    if (player.velocity.y < -50.0f) player.velocity.y = -50.0f;
+
+    float damping = powf(0.005f, deltaTime);
+    player.velocity.x *= damping;
+    player.velocity.z *= damping;
+    player.velocity += moveDir * acceleration;
+}
+
 
 int main()
 {
     initWindow();
     buildShaderProgram();
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetCursorPosCallback(window, mouseCallback);
+    glfwSetKeyCallback(window, keyCallback);
+    glfwSetCursorPosCallback(window, mouseMoveCallback);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
 
 
 
@@ -58,12 +134,8 @@ int main()
     UIText fpsLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1} };
     uploadUIText(fpsLabel);
 
-
-
     bakeSceneLighting();
     collectSceneColliders();
-
-
 
     for (Object*& obj : parents) obj->Upload();
     for (UIElement*& ui : uiElements) uploadUIElement(*ui);
@@ -77,42 +149,21 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        if (std::find(keys_pressed.begin(), keys_pressed.end(), GLFW_MOUSE_BUTTON_1) != keys_pressed.end())
-            gun->SetAnimation(1, 0.05f, 0);
+        if (mouseButtonPressed(GLFW_MOUSE_BUTTON_1))
+            gun->SetAnimation(1, 0.01f, 0);
+        
+        if (keyPressed(GLFW_KEY_SPACE) && player.grounded)
+            player.velocity.y += 5.0f;
 
+        mouse_buttons_pressed = {};
         keys_pressed = {};
 
-
-        float acceleration = 30.0f * deltaTime; // deltaTime keeps speed steady regardless of FPS
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
 
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            player.velocity.x -= acceleration * sin(glm::radians(player.transform.yaw));
-            player.velocity.z -= acceleration * cos(glm::radians(player.transform.yaw));
-        }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-            player.velocity.x += acceleration * sin(glm::radians(player.transform.yaw));
-            player.velocity.z += acceleration * cos(glm::radians(player.transform.yaw));
-        }
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-            player.velocity.x += acceleration * sin(glm::radians(player.transform.yaw - 90));
-            player.velocity.z += acceleration * cos(glm::radians(player.transform.yaw - 90));
-        }
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-            player.velocity.x += acceleration * sin(glm::radians(player.transform.yaw + 90));
-            player.velocity.z += acceleration * cos(glm::radians(player.transform.yaw + 90));
-        }
+        movementLogic();
 
-
-        player.velocity.y -= 9.81f * deltaTime;
-        if (player.velocity.y < -50.0f) player.velocity.y = -50.0f;
-
-        float damping = powf(0.005f, deltaTime);
-        player.velocity.x *= damping;
-        player.velocity.z *= damping;
-        
         // Split this frame's motion into steps no longer than half the capsule's
         // radius. resolvePlayerCollision() only fixes an overlap that still
         // exists when it runs, so a step big enough to clear a surface entirely
