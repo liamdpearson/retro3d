@@ -1,4 +1,4 @@
-// An altered version of graphics.hpp in the src/game folder meant for the editor.
+// An altered version of graphics.cpp in the src/engine/graphics folder meant for the editor.
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>

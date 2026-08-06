@@ -10,19 +10,10 @@
 
 #include <nlohmann/json.hpp> // json parser
 
-#include <cstdio>
 #include <vector>
 #include <string>
-#include <unordered_map>
 #include <fstream>
-#include <sstream>
-#include <map>
-#include <utility>
-#include <tuple>
-#include <algorithm>
-#include <cmath>
 #include <iostream>
-
 
 
 const float PI = 3.14159265358979323;
@@ -349,7 +340,6 @@ extern const char* fragmentShaderSrc;
 extern std::vector<Object*> parents;
 extern std::vector<Light*> lights;
 extern std::vector<UIElement*> uiElements;
-extern std::vector<Tri> occluders;
 extern std::vector<Tri> colliders;
 extern std::vector<glm::vec3> lightGrid;
 

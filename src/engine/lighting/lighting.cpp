@@ -1,5 +1,8 @@
 #include "lighting.h"
 
+
+std::vector<Tri> occluders;
+
 // dont ask me how this function works Claude generated it.
 //
 // Möller–Trumbore. Two-sided on purpose: the back face of a closed mesh blocks

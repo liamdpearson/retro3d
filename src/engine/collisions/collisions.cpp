@@ -1,6 +1,8 @@
 #include "collisions.h"
 
 
+std::vector<Tri> colliders;
+
 // dont ask me how this function works Claude generated it.
 //
 // Möller–Trumbore for a single triangle, returning the hit distance rather than

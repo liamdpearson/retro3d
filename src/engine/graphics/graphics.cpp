@@ -28,9 +28,6 @@ int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
 int lightModeLoc, objectLightLoc, textModeLoc;
 
-
-std::vector<Tri> occluders;
-std::vector<Tri> colliders;
 std::vector<glm::vec3> lightGrid;
 
 // for finding the bounds box of the scene for light grid

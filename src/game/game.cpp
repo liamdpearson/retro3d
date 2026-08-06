@@ -1,7 +1,7 @@
 #include "game.h"
 
 
-const float sensitivity = 0.25f;
+const float sensitivity = 0.05f;
 float lightAmbient = 0.3f;
 
 std::vector<int> keys_pressed;
@@ -105,6 +105,7 @@ void movementLogic()
 int main()
 {
     initWindow();
+    initAudio(); // not fatal if it fails — the game just runs silent
     buildShaderProgram();
     glfwSetKeyCallback(window, keyCallback);
     glfwSetCursorPosCallback(window, mouseMoveCallback);
@@ -118,22 +119,25 @@ int main()
 
     if (!a)
         std::cout << "couldn't find gun\n";
+
     Mesh* gun = dynamic_cast<Mesh*>(a);
 
     if (!gun)
         std::cout << "'gun' is not a Mesh\n";
     
     gun->SetAnimation(0);
+
     
     // --- init ui --- //
     // src, x, y, scale
-    UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
+    UIElement crosshair = makeUIElement("assets/ui/crosshair.png", SW/2, SH/2, 0.05f);
     uiElements.push_back(&crosshair);
 
-    Font uiFont = bakeFont("assets/arial.ttf", 48.0f);
+    Font uiFont = bakeFont("assets/fonts/arial.ttf", 48.0f);
     UIText fpsLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1} };
     uploadUIText(fpsLabel);
 
+    
     bakeSceneLighting();
     collectSceneColliders();
 
@@ -150,7 +154,10 @@ int main()
         lastFrame = currentFrame;
 
         if (mouseButtonPressed(GLFW_MOUSE_BUTTON_1))
+        {
             gun->SetAnimation(1, 0.01f, 0);
+            playSound2D("assets/sfx/shot.wav");
+        }
         
         if (keyPressed(GLFW_KEY_SPACE) && player.grounded)
             player.velocity.y += 5.0f;
@@ -219,6 +226,7 @@ int main()
         glfwSwapBuffers(window);
     }
 
+    shutdownAudio();
     glfwTerminate();
     return 0;
 }   

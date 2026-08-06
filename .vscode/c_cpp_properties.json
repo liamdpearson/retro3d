@@ -6,6 +6,7 @@
                 "${workspaceFolder}/src",
                 "${workspaceFolder}/third_party/glad/include",
                 "${workspaceFolder}/third_party/glfw/include",
+                "${workspaceFolder}/third_party/miniaudio",
                 "${workspaceFolder}/third_party/ufbx",
                 "${workspaceFolder}/third_party"
             ],

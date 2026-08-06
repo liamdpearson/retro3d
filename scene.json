@@ -22,8 +22,8 @@
             "isStatic": true,
             "name": "testing_zone",
             "tag": "",
-            "obj src": "assets/testing_zone/testing_zone.obj",
-            "tex src": "assets/testing_zone/testing_zone.png",
+            "obj src": "assets/objects/testing_zone/testing_zone.obj",
+            "tex src": "assets/objects/testing_zone/testing_zone.png",
             "transform": [
                 0.0,
                 0.0,
@@ -40,8 +40,8 @@
             "isStatic": false,
             "name": "knight",
             "tag": "",
-            "obj src": "assets/knight/knight.fbx",
-            "tex src": "assets/knight/knight.png",
+            "obj src": "assets/objects/knight/knight.fbx",
+            "tex src": "assets/objects/knight/knight.png",
             "transform": [
                 -3.810002088546753,
                 1.9849872589111328,
@@ -63,8 +63,8 @@
                             "isStatic": false,
                             "name": "triplebarrel",
                             "tag": "gun",
-                            "obj src": "assets/triplebarrel/triplebarrel.fbx",
-                            "tex src": "assets/triplebarrel/triplebarrel.png",
+                            "obj src": "assets/objects/triplebarrel/triplebarrel.fbx",
+                            "tex src": "assets/objects/triplebarrel/triplebarrel.png",
                             "transform": [
                                 0.07500001043081284,
                                 -0.07500000298023224,

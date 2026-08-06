@@ -1,6 +1,7 @@
 # build output
-main.exe
+build/
 *.o
+*.d
 *.exe
 
 # keep third_party/ vendored (GLFW + GLAD) so the project builds anywhere

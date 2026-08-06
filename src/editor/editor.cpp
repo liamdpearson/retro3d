@@ -219,10 +219,10 @@ int main()
     
     // --- init ui elements --- //
     // src, x, y, scale
-    UIElement crosshair = makeUIElement("assets/crosshair.png", SW/2, SH/2, 0.05f);
+    UIElement crosshair = makeUIElement("assets/ui/crosshair.png", SW/2, SH/2, 0.05f);
     uiElements.push_back(&crosshair);
 
-    Font uiFont = bakeFont("assets/terminal.ttf", 48.0f);
+    Font uiFont = bakeFont("assets/fonts/terminal.ttf", 48.0f);
 
     UIText hierarchyLabel{ {20.0f, 20.0f}, 32.0f, "", &uiFont, {1,1,1}, true };
     uploadUIText(hierarchyLabel);

@@ -1,4 +1,4 @@
-// An altered version of graphics.hpp in the src/game folder meant for the editor.
+// An altered version of graphics.h in the src/engine/graphics folder meant for the editor.
 
 #pragma once
 
@@ -12,19 +12,10 @@
 
 #include <nlohmann/json.hpp> // json parser
 
-#include <cstdio>
 #include <vector>
 #include <string>
-#include <unordered_map>
 #include <fstream>
-#include <sstream>
-#include <map>
-#include <utility>
-#include <tuple>
-#include <algorithm>
-#include <cmath>
 #include <iostream>
-
 
 
 const float PI = 3.14159265358979323;
