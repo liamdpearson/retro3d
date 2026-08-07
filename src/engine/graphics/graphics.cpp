@@ -28,6 +28,8 @@ int modelLoc, viewLoc, projectionLoc;
 int boneMatricesLoc;
 int lightModeLoc, objectLightLoc, textModeLoc;
 
+std::vector<Tri> occluders;
+std::vector<TriAABB> colliders;
 std::vector<glm::vec3> lightGrid;
 
 // for finding the bounds box of the scene for light grid
@@ -580,6 +582,39 @@ Mesh makeFbx(const char* objPath, const char* texPath,
     return obj;
 }
 
+static float getEntityHeight(const std::vector<float>& vertices)
+{
+    float max = 0.0f;
+    float min = 0.0f;
+
+    for (int i = 0; i < vertices.size(); i += VERTEX_FLOATS)
+    {
+        if (vertices[i + 1] > max) max = vertices[i + 1];
+        if (vertices[i + 1] < min) min = vertices[i + 1];
+    }
+
+    return max - min;
+}
+
+Entity makeEntity(const char* objPath, const char* texPath,
+                  Transform transform, float ratiohr)
+{
+    Entity entity;
+    loadFBX(objPath, entity.vertices, entity.indices, entity.skeleton, entity.animations);
+    entity.transform = transform;
+    entity.world = transform.matrix();
+    entity.texture = loadTexture(texPath);
+    entity.indexCount = (GLsizei)entity.indices.size();
+
+    entity.height = getEntityHeight(entity.vertices) * transform.scale;
+    entity.radius = entity.height * ratiohr;
+    
+    std::fprintf(stderr, "Entity created with radius: %f and height %f\n",
+                entity.radius, entity.height);
+
+    return entity;
+}
+
 UIElement makeUIElement(const char* texPath, float x, float y, float scale)
 {
     UIElement ui;
@@ -1050,7 +1085,7 @@ void clearBG(float r, float g, float b, float a)
     glm::mat4 projection = glm::perspective(
         glm::radians(camera.FOV),            // vertical field of view
         (float)fbw / (float)fbh,             // aspect ratio
-        0.01f, 100.0f);                       // near & far clip planes
+        0.01f, 1000.0f);                       // near & far clip planes
     
     glm::mat4 view = glm::lookAt(
         camera.pos,         // camera position (Step 5 fills these in)

@@ -3,8 +3,6 @@
 #include "../graphics/graphics.h"
 
 
-extern std::vector<Tri> occluders;
-
 // sample all lights at one world-space point, for lighting a whole mover at once.
 glm::vec3 sampleLightAt(const glm::vec3& p);
 

@@ -127,7 +127,29 @@ int main()
     
     gun->SetAnimation(0);
 
+    Object* b = findFirst("wasd", parents);
+
+    if (!b)
+        std::cout << "couldn't find sound\n";
+
+    AudioSource* sound = dynamic_cast<AudioSource*>(b);
+
+    if (!gun)
+        std::cout << "'sound' is not an AudioSource\n";
     
+    sound->Play();
+
+    Object* c = findFirst("entity", parents);
+
+    if (!c)
+        std::cout << "couldn't find entity\n";
+
+    Entity* entity = dynamic_cast<Entity*>(c);
+
+    if (!entity)
+        std::cout << "'entity' is not a Entity\n";
+
+
     // --- init ui --- //
     // src, x, y, scale
     UIElement crosshair = makeUIElement("assets/ui/crosshair.png", SW/2, SH/2, 0.05f);
@@ -153,10 +175,11 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        if (mouseButtonPressed(GLFW_MOUSE_BUTTON_1))
+        if (mouseButtonPressed(GLFW_MOUSE_BUTTON_2))
         {
-            gun->SetAnimation(1, 0.01f, 0);
-            playSound2D("assets/sfx/shot.wav");
+            gun->SetAnimation(1, 0.03f, 0);
+            playSound2D("assets/sfx/shot.wav", 0.75f);
+            player.velocity -= camera.front * 5.0f;
         }
         
         if (keyPressed(GLFW_KEY_SPACE) && player.grounded)
@@ -168,21 +191,32 @@ int main()
 
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
+    
+        movementLogic(); // resolve player movement
 
-        movementLogic();
+        entity->velocity.y -= 9.81f * deltaTime;
+        if (entity->velocity.y < -50.0f) entity->velocity.y = -50.0f;
+        entity->velocity.x += 0.1f * deltaTime;
 
-        // Split this frame's motion into steps no longer than half the capsule's
-        // radius. resolvePlayerCollision() only fixes an overlap that still
-        // exists when it runs, so a step big enough to clear a surface entirely
-        // lands past it with nothing left to detect — the classic way to fall
-        // through a floor after building up speed.
+
+        glm::vec3 estep = entity->velocity * deltaTime;
+        int esubsteps = glm::max(1, (int)glm::ceil(glm::length(estep) / (entity->radius * 0.5f)));
+
+        for (int i = 0; i < esubsteps; i++)
+        {
+            entity->transform.x += estep.x / esubsteps;
+            entity->transform.y += estep.y / esubsteps;
+            entity->transform.z += estep.z / esubsteps;
+
+            resolveEntityCollision(*entity);
+        }
+
+
+        
+        // split step into smaller steps no larger than half players radius so it cant phase
         glm::vec3 step = player.velocity * deltaTime;
         int substeps = glm::max(1, (int)glm::ceil(glm::length(step) / (player.radius * 0.5f)));
 
-        // resolvePlayerCollision() clears `grounded` on entry, so the last
-        // substep would otherwise be the only one that could report it — and it
-        // usually can't, since the previous substep pushed the capsule out to
-        // exactly contact distance. Accumulate across the whole move instead.
         bool groundedAny = false;
 
         for (int i = 0; i < substeps; i++)
@@ -199,6 +233,10 @@ int main()
 
         player.grounded = groundedAny;
 
+        
+
+        // --- collisions --- //
+
         // Compose first: this refreshes every `world` in the graph and lets the
         // camera derive its pos/front, which clearBG() reads to build `view`.
         // Draw only after both, or the view matrix lags the scene by a frame.
@@ -207,6 +245,11 @@ int main()
             obj->world = obj->transform.matrix();
             obj->Compose();
         }
+
+        // After Compose for the same reason clearBG() is: the camera basis this
+        // reads is only valid once the graph has been recomposed, and every
+        // AudioSource pushed its new position during that same pass.
+        updateAudio(camera.pos, camera.front, camera.up);
 
         clearBG(0.10f, 0.12f, 0.15f, 1.0f); // r, g, b, a
 

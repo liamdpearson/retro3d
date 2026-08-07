@@ -1,7 +1,7 @@
 #include "collisions.h"
 
 
-std::vector<Tri> colliders;
+// `colliders` is defined in graphics.cpp now, alongside `occluders`.
 
 // dont ask me how this function works Claude generated it.
 //
@@ -89,14 +89,24 @@ Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist)
 }
 
 // recursion side same as CollectOccluders
-void Object::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
+void Object::CollectColliders(const glm::mat4& parentWorld, std::vector<TriAABB>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();
     for (Object*& child : children) child->CollectColliders(world, out);
 }
 
+// builds each static triangles AABB so it can be checked with the player
+static AABB triBounds(const Tri& t)
+{
+    AABB box;
+    box.min = glm::min(glm::min(t.a, t.b), t.c);
+    box.max = glm::max(glm::max(t.a, t.b), t.c);
+    return box;
+}
+
+
 // same thing as CollectOccluders just checks for collides aswell
-void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
+void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<TriAABB>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();
 
@@ -104,7 +114,7 @@ void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
     {
         for (size_t i = 0; i + 2 < indices.size(); i += 3)
         {
-            Tri t;
+            TriAABB t;
             glm::vec3* corner[3] = { &t.a, &t.b, &t.c };
             for (int c = 0; c < 3; c++)
             {
@@ -112,6 +122,7 @@ void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out)
                 glm::vec3 local(vertices[v + 0], vertices[v + 1], vertices[v + 2]);
                 *corner[c] = glm::vec3(world * glm::vec4(local, 1.0f));
             }
+            t.aabb = triBounds(Tri{t.a, t.b, t.c});
             out.push_back(t);
         }
     }
@@ -136,12 +147,14 @@ static AABB playerBounds(const Player& player)
     return box;
 }
 
-// builds each static triangles AABB so it can be checked with the player
-static AABB triBounds(const Tri& t)
+// builds entity AABB.
+static AABB entityBounds(const Entity& entity)
 {
+    glm::vec3 feet(entity.transform.x, entity.transform.y, entity.transform.z);
+
     AABB box;
-    box.min = glm::min(glm::min(t.a, t.b), t.c);
-    box.max = glm::max(glm::max(t.a, t.b), t.c);
+    box.min = feet - glm::vec3(entity.radius, 0.0f, entity.radius);
+    box.max = feet + glm::vec3(entity.radius, entity.height, entity.radius);
     return box;
 }
 
@@ -224,9 +237,9 @@ void resolvePlayerCollision(Player& player)
 
         bool hitAny = false;
 
-        for (const Tri& t : colliders)
+        for (const TriAABB& t : colliders)
         {
-            if (!playerBox.overlaps(triBounds(t))) continue;
+            if (!playerBox.overlaps(t.aabb)) continue;
 
             glm::vec3 rawNormal = glm::cross(t.b - t.a, t.c - t.a);
             float normalLenSq = glm::dot(rawNormal, rawNormal);
@@ -292,6 +305,96 @@ void resolvePlayerCollision(Player& player)
 
                 // Cancel only the component of motion heading into the surface
                 player.velocity -= pushDir * glm::min(0.0f, glm::dot(player.velocity, pushDir));
+                
+            }
+            hitAny = true;
+        }
+
+        if (!hitAny) break;
+    }
+}
+
+void resolveEntityCollision(Entity& entity)
+{
+    const int MAX_ITERATIONS = 1;
+    const float radiusSq = entity.radius * entity.radius;
+
+    for (int iter = 0; iter < MAX_ITERATIONS; iter++)
+    {
+        // Rebuilt per pass rather than per push: a push inside this pass leaves
+        // the box slightly stale, and the next pass is what picks that up.
+        AABB entityBox = entityBounds(entity);
+        entityBox.expand(0.01f);
+
+        bool hitAny = false;
+
+        for (const TriAABB& t : colliders)
+        {
+            if (!entityBox.overlaps(t.aabb)) continue;
+
+            glm::vec3 rawNormal = glm::cross(t.b - t.a, t.c - t.a);
+            float normalLenSq = glm::dot(rawNormal, rawNormal);
+            if (normalLenSq < 1e-12f) continue;   // degenerate tri, no surface to push off
+
+            glm::vec3 faceNormal = rawNormal / glm::sqrt(normalLenSq);
+
+            // The capsule's axis: the segment that, swept by `radius`, traces the
+            // capsule exactly — so it is inset by the radius at each cap.
+            glm::vec3 feet(entity.transform.x, entity.transform.y, entity.transform.z);
+            glm::vec3 base = feet + glm::vec3(0.0f, entity.radius, 0.0f);
+            glm::vec3 tip  = feet + glm::vec3(0.0f, entity.height - entity.radius, 0.0f);
+            if (tip.y < base.y) tip = base;   // entity wider than tall: degenerate to a sphere
+
+            // Reduce capsule-vs-triangle to sphere-vs-triangle: find where the
+            // axis crosses the triangle's plane, clamp that into the triangle,
+            // then take the point on the axis nearest it as the sphere center.
+            glm::vec3 axis = tip - base;
+            float denom = glm::dot(faceNormal, axis);
+
+            glm::vec3 reference;
+            if (glm::abs(denom) < 1e-6f)
+                reference = t.a;   // axis parallel to the plane; any point on it serves
+            else
+                reference = base + axis * glm::clamp(glm::dot(faceNormal, t.a - base) / denom,
+                                                     0.0f, 1.0f);
+
+            reference = closestPointOnTriangle(reference, t);
+
+            glm::vec3 center  = closestPointOnSegment(reference, base, tip);
+            glm::vec3 contact = closestPointOnTriangle(center, t);
+
+            glm::vec3 delta = center - contact;
+            float distSq = glm::dot(delta, delta);
+            if (distSq >= radiusSq) continue;   // clear of this triangle
+
+            glm::vec3 pushDir;
+            float depth;
+            if (distSq > 1e-12f)
+            {
+                float dist = glm::sqrt(distSq);
+                pushDir = delta / dist;
+                depth   = entity.radius - dist;
+            }
+            else
+            {
+                // Center landed exactly on the surface, so `delta` carries no
+                // direction. Fall back to the face normal.
+                pushDir = faceNormal;
+                depth   = entity.radius;
+            }
+            
+            entity.transform.y += pushDir.y * depth;
+            
+            if (pushDir.y > GROUND_NORMAL_Y) {
+                // Cancel only the component of motion heading into the surface for y
+                entity.velocity.y -= pushDir.y * glm::min(0.0f, glm::dot(entity.velocity.y, pushDir.y));
+            } else {
+                // only push entity on x and z if its not a ground tri
+                entity.transform.x += pushDir.x * depth;
+                entity.transform.z += pushDir.z * depth;
+
+                // Cancel only the component of motion heading into the surface
+                entity.velocity -= pushDir * glm::min(0.0f, glm::dot(entity.velocity, pushDir));
                 
             }
             hitAny = true;

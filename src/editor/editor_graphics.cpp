@@ -642,6 +642,25 @@ FbxMesh makeFbx(const char* objPath, const char* texPath,
 }
 
 
+SoundMesh makeSoundMesh(const char* objPath, const char* texPath,
+             Transform transform, std::string src, float volume,
+             float minDist, float maxDist, float rolloff, bool loop)
+{
+    SoundMesh obj;
+    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.src = src; obj.volume = volume;
+    obj.minDist = minDist; obj.maxDist = maxDist;
+    obj.rolloff = rolloff; obj.loop = loop;
+
+    return obj;
+}
+
+
 UIElement makeUIElement(const char* texPath, float x, float y, float scale)
 {
     UIElement ui;

@@ -48,6 +48,9 @@ void removeObject(Object*& obj)
 // constructor would otherwise alias the original's child Object* pointers.
 static Object* cloneNode(Object* src, Object* parent)
 {
+    if (src->type == "camera" || src->type == "player")
+        return nullptr; // no copying the camera or the player
+
     Object* clone = nullptr;
 
     if (LightMesh* light = dynamic_cast<LightMesh*>(src))
@@ -55,13 +58,6 @@ static Object* cloneNode(Object* src, Object* parent)
         LightMesh* c = new LightMesh(*light);
         c->VAO = c->VBO = c->EBO = 0;
         c->texture = loadTexture("assets/engine_assets/light/light.png");
-        clone = c;
-    }
-    else if (CameraMesh* cam = dynamic_cast<CameraMesh*>(src))
-    {
-        CameraMesh* c = new CameraMesh(*cam);
-        c->VAO = c->VBO = c->EBO = 0;
-        c->texture = loadTexture("assets/engine_assets/camera/camera.png");
         clone = c;
     }
     else if (ObjMesh* obj = dynamic_cast<ObjMesh*>(src))
@@ -92,9 +88,11 @@ static Object* cloneNode(Object* src, Object* parent)
 
     clone->parent = parent;
     clone->children.clear();
-    for (Object* child : src->children)
-        clone->children.push_back(cloneNode(child, clone));
-
+    for (Object* child : src->children) {
+        Object* c = cloneNode(child, clone);
+        if (!c) return nullptr;
+        clone->children.push_back(cloneNode(c, clone));
+    }
     return clone;
 }
 
@@ -111,6 +109,7 @@ void copyObject(Object*& copied, Object*& current)
     if (it == siblings.end()) return;
 
     Object* clone = cloneNode(copied, current->parent);
+    if (!clone) return; // no copying anything with the camera or the player in its subtree.
     siblings.insert(it + 1, clone);
     clone->Upload();
 }
@@ -126,6 +125,7 @@ static Object* buildNode(const json& j, Object* parent)
 {
     const std::string type = j.value("type", "object");
     const std::string name = j.value("name", "");
+    const std::string tag = j.value("tag", "");
 
     if (type == "light")
     {
@@ -195,6 +195,18 @@ static Object* buildNode(const json& j, Object* parent)
             )
         );
     }
+    else if (type == "sound")
+    {
+        node = new SoundMesh(
+            makeSoundMesh(
+                "assets/engine_assets/sound/sound.obj",
+                "assets/engine_assets/sound/sound.png",
+                transform, j.at("src"), j.at("volume").get<float>(),
+                j.at("minDist").get<float>(), j.at("maxDist").get<float>(),
+                j.at("rolloff").get<float>(), j.at("loop").get<bool>()
+            )
+        );
+    }
     else if (type == "pivot")
     {
         node = new Mesh(makeMesh("assets/engine_assets/pivot/pivot.obj",
@@ -227,6 +239,7 @@ static Object* buildNode(const json& j, Object* parent)
     
     node->name = name;
     node->type = type;
+    node->tag = tag;
     node->parent = parent;
     node->transform = transform;
     node->world = transform.matrix();
@@ -291,6 +304,8 @@ static json objectToJson(Object* node)
         return j; // lights carry no transform/children in the scene format
     }
 
+    j["tag"] = node->tag;
+
     if (node->type == "player")
     {
         j["name"]      = node->name;
@@ -311,7 +326,6 @@ static json objectToJson(Object* node)
 
     if (ObjMesh* obj = dynamic_cast<ObjMesh*>(node))
     {
-        j["name"]      = obj->name;
         j["obj src"]   = obj->objSrc;
         j["tex src"]   = obj->texSrc;
         j["isStatic"]  = obj->isStatic;
@@ -320,7 +334,6 @@ static json objectToJson(Object* node)
     }
     else if (FbxMesh* fbx = dynamic_cast<FbxMesh*>(node))
     {
-        j["name"]      = fbx->name;
         j["obj src"]   = fbx->objSrc;
         j["tex src"]   = fbx->texSrc;
         j["isStatic"]  = fbx->isStatic;
@@ -328,17 +341,25 @@ static json objectToJson(Object* node)
     }
     else if (CameraMesh* cam = dynamic_cast<CameraMesh*>(node))
     {
-        j["name"] = cam->name;
         j["fov"]  = cam->FOV;
         j["type"] = "camera";
     }
-    else if (node->type == "player") {}
+    else if (SoundMesh* sound = dynamic_cast<SoundMesh*>(node))
+    {
+        j["src"]  = sound->src;
+        j["volume"] = sound->volume;
+        j["minDist"]  = sound->minDist;
+        j["maxDist"] = sound->maxDist;
+        j["rolloff"]  = sound->rolloff;
+        j["loop"] = sound->loop;
+        j["type"] = "sound";
+    }
     else // pivot, or anything else with no packed fields
     {
-        j["name"] = node->name;
         j["type"] = "pivot";
     }
 
+    j["name"] = node->name;
     j["children"] = json::array();
     for (Object* child : node->children)
         j["children"].push_back(objectToJson(child));

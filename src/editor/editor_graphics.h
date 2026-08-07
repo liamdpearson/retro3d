@@ -120,6 +120,7 @@ struct Object
 {
     std::string name;
     std::string type;
+    std::string tag;
 
     Transform transform; // local transform
 
@@ -232,6 +233,14 @@ struct FbxMesh : Mesh
     bool isStatic;
     std::string objSrc;
     std::string texSrc;
+};
+
+
+struct SoundMesh: Mesh
+{
+    std::string src;
+    float volume, minDist, maxDist, rolloff;
+    bool loop;
 };
 
 
@@ -371,9 +380,12 @@ CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
 ObjMesh makeObj(const char* objPath, const char* texPath,
              Transform Transform, bool isStatic, bool collides);
 
-// for animated objects
 FbxMesh makeFbx(const char* objPath, const char* texPath,
              Transform Transform, bool isStatic);
+
+SoundMesh makeSoundMesh(const char* objPath, const char* texPath,
+             Transform transform, std::string src, float volume,
+             float minDist, float maxDist, float rolloff, bool loop);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 

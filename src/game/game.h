@@ -26,7 +26,7 @@ std::vector<UIElement*> uiElements;
 static Object* buildNode(const json& j, Object* parent)
 {
     const std::string type = j.value("type", "object");
-    const std::string name = j.value("name", ""); 
+    const std::string name = j.value("name", "");
 
     if (type == "light")
     {
@@ -79,6 +79,16 @@ static Object* buildNode(const json& j, Object* parent)
             )
         );
     }
+    else if (type == "entity")
+    {
+        node = new Entity(
+            makeEntity(
+                j.at("obj src").get<std::string>().c_str(),
+                j.at("tex src").get<std::string>().c_str(),
+                transform, j.at("ratiohr").get<float>()
+            )
+        );
+    }
     else if (type == "camera")
     {
         // The one node we don't allocate: graphics.cpp draws through the global
@@ -87,10 +97,6 @@ static Object* buildNode(const json& j, Object* parent)
         camera.FOV = j.value("fov", camera.FOV);
         camera.transform = transform;
         node = &camera;
-    }
-    else if (type == "pivot")
-    {
-        node = new Object(transform); // a bare pivot / attachment point
     }
     else if (type == "player")
     {
@@ -101,6 +107,18 @@ static Object* buildNode(const json& j, Object* parent)
         transform = Transform{p.at(0).get<float>(), p.at(1).get<float>(), p.at(2).get<float>(),
                               j.at("yaw").get<float>(), 0.0f, 0.0f, 1.0f};
         node = &player;
+    }
+    else if (type == "sound")
+    {
+        node = new AudioSource{
+            transform, j.at("src"), j.at("volume").get<float>(),
+            j.at("minDist").get<float>(), j.at("maxDist").get<float>(),
+            j.at("rolloff").get<float>(), j.at("loop").get<bool>()
+        };
+    }
+    else if (type == "pivot")
+    {
+        node = new Object(transform); // a bare pivot / attachment point
     }
     else
     {

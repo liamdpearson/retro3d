@@ -127,6 +127,8 @@ struct AABB
     }
 };
 
+struct TriAABB : Tri { AABB aabb; };
+
 // a node in the scene graph: contains local transform, world matrix, and
 // children vector. carries no geometry.
 //
@@ -172,7 +174,7 @@ struct Object
     // collects Tris that are both static and collides same as CollectOccluders except
     // that CollectOccluders cares if an object is static or not. these must be kept seperate
     // else the user wont be able to seperate static colliders with static non colliders.
-    virtual void CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out);
+    virtual void CollectColliders(const glm::mat4& parentWorld, std::vector<TriAABB>& out);
 
     virtual void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                          float& closest, Object*& hit);
@@ -227,7 +229,7 @@ struct Mesh : Object
     void CollectOccluders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
     void BakeLighting(const glm::mat4& parentWorld, const std::vector<Tri>& occluders) override;
 
-    void CollectColliders(const glm::mat4& parentWorld, std::vector<Tri>& out) override;
+    void CollectColliders(const glm::mat4& parentWorld, std::vector<TriAABB>& out) override;
     
     void Raycast(const glm::vec3& origin, const glm::vec3& dir,
                  float& closest, Object*& hit) override;
@@ -243,6 +245,14 @@ struct Mesh : Object
     bool SetAnimation(const std::string& name, float blendTime = 0.0f, int nextAnim = -1);
 
     ~Mesh() override;
+};
+
+
+struct Entity : Mesh
+{
+    glm::vec3 velocity{0.0f};
+    float radius;
+    float height;
 };
 
 
@@ -340,7 +350,8 @@ extern const char* fragmentShaderSrc;
 extern std::vector<Object*> parents;
 extern std::vector<Light*> lights;
 extern std::vector<UIElement*> uiElements;
-extern std::vector<Tri> colliders;
+extern std::vector<Tri> occluders;
+extern std::vector<TriAABB> colliders;
 extern std::vector<glm::vec3> lightGrid;
 
 extern float minX;
@@ -387,6 +398,9 @@ Mesh makeObj(const char* objPath, const char* texPath,
 // for animated objects
 Mesh makeFbx(const char* objPath, const char* texPath,
              Transform Transform);
+
+Entity makeEntity(const char* objPath, const char* texPath,
+                  Transform transform, float ratiohr);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 
