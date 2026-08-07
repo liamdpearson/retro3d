@@ -385,7 +385,7 @@ FbxMesh makeFbx(const char* objPath, const char* texPath,
 
 SoundMesh makeSoundMesh(const char* objPath, const char* texPath,
              Transform transform, std::string src, float volume,
-             float minDist, float maxDist, float rolloff, bool loop);
+             float minDist, float maxDist, bool loop);
 
 UIElement makeUIElement(const char* texPath, float x, float y, float scale);
 

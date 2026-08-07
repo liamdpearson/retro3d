@@ -64,8 +64,7 @@ bool soundPlaying(SoundHandle handle);
 // sound it started is still playing.
 void setSoundPosition(SoundHandle handle, const glm::vec3& pos);
 void setSoundVolume(SoundHandle handle, float volume);
-void setSoundAttenuation(SoundHandle handle, float minDistance, float maxDistance,
-                         float rolloff);
+void setSoundAttenuation(SoundHandle handle, float minDistance, float maxDistance);
 
 // Stops the voice and returns its slot to the pool immediately, invalidating
 // every handle to it.
@@ -139,21 +138,9 @@ struct AudioSource : Object
     std::string src;
 
     float volume = 1.0f;
-
-    // Inside minDistance the sound plays at full volume, then falls off in a
-    // straight line to silence at maxDistance — the attenuation model is linear
-    // (see playSound3D), so maxDistance really is the point where the source
-    // goes quiet rather than just the point where it stops getting quieter.
-    //
-    // Metres, like everything else in the engine — which is also the scale
-    // miniaudio's defaults assume, so these numbers mean what they look like.
-    //
-    // `rolloff` steepens that line: 1 lands on silence exactly at maxDistance,
-    // above 1 hits silence early and leaves a dead ring inside the radius, below
-    // 1 never quite gets there. Leave it at 1 unless you want one of those.
+    
     float minDistance = 1.0f;
     float maxDistance = 40.0f;
-    float rolloff = 1.0f;
 
     bool loop = false;
 
@@ -170,10 +157,9 @@ struct AudioSource : Object
     // declaration order above; `handle` is deliberately not settable, since a
     // node that has never played has nothing to hold a handle to.
     AudioSource(const Transform& transform, const std::string& src, float volume,
-                float minDistance, float maxDistance, float rolloff, bool loop)
+                float minDistance, float maxDistance, bool loop)
         : Object(transform), src(src), volume(volume),
-          minDistance(minDistance), maxDistance(maxDistance), rolloff(rolloff),
-          loop(loop) {}
+          minDistance(minDistance), maxDistance(maxDistance), loop(loop) {}
 
     // Starts `src` at this node's current world position. Returns false if audio
     // is down, the file failed to load, or the pool is full.

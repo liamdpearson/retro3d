@@ -238,15 +238,13 @@ void setSoundVolume(SoundHandle handle, float volume)
     if (sound != NULL) ma_sound_set_volume(sound, volume);
 }
 
-void setSoundAttenuation(SoundHandle handle, float minDistance, float maxDistance,
-                         float rolloff)
+void setSoundAttenuation(SoundHandle handle, float minDistance, float maxDistance)
 {
     ma_sound* sound = resolve(handle);
     if (sound == NULL) return;
 
     ma_sound_set_min_distance(sound, minDistance);
     ma_sound_set_max_distance(sound, maxDistance);
-    ma_sound_set_rolloff(sound, rolloff);
 }
 
 void stopSound(SoundHandle handle)
@@ -293,29 +291,10 @@ SoundHandle playSound3D(const char* path, const glm::vec3& pos, float volume, bo
     // Everything below is set while the voice is still silent — see initVoice.
     ma_sound_set_position(sound, pos.x, pos.y, pos.z);
 
-    // Linear, not miniaudio's default of inverse:
-    //
-    //   gain = 1 - rolloff * (clamp(d, min, max) - min) / (max - min)
-    //
-    // which reaches exactly 0 at maxDistance when rolloff is 1, so maxDistance
-    // means what it looks like it means. Inverse is 1/x and never reaches zero —
-    // it only stops falling at maxDistance, leaving every source audible forever
-    // at whatever gain it had got down to (about -32 dB on these defaults).
-    //
-    // The trade is that linear is a straight line in amplitude, so it stays loud
-    // further out and then dies quickly near the edge, where inverse drops off
-    // fast up close and trails away. Inverse is the more natural-sounding of the
-    // two; this one is the more controllable.
-    //
-    // Note rolloff above 1 makes the gain hit zero BEFORE maxDistance, and below
-    // 1 leaves it audible at the boundary — with linear, rolloff and maxDistance
-    // are not independent knobs.
-    //
-    // Callers with their own falloff curve in mind — matching the lighting's
-    // intensity / (1 + d^2 / radius), say — can switch this to
-    // ma_attenuation_model_none and drive setSoundVolume() per frame instead,
-    // keeping miniaudio's panning while owning the distance term.
+    // set attenuation model to linear for panning but then neuter sound 
+    // rolloff so I can calculate it my way. see AudioSource::Compose().
     ma_sound_set_attenuation_model(sound, ma_attenuation_model_linear);
+    ma_sound_set_rolloff(sound, 0.0f);
 
     // Doppler off. miniaudio defaults it on, but it derives pitch from a
     // velocity nothing hands it — and a velocity recovered from a per-frame
@@ -378,7 +357,7 @@ bool AudioSource::Play()
     Stop();
 
     handle = playSound3D(src.c_str(), glm::vec3(world[3]), volume, loop);
-    setSoundAttenuation(handle, minDistance, maxDistance, rolloff);
+    setSoundAttenuation(handle, minDistance, maxDistance);
 
     return handle.slot >= 0;
 }
@@ -440,15 +419,18 @@ void AudioSource::Compose()
     // so it is worth asking whether anyone can hear this first. A source that
     // isn't playing is the common case for one-shots that have finished.
     if (soundPlaying(handle))
-    {
-        if (glm::distance(pos, listener) < maxDistance)
-        {  
+    {   
+        float dist = glm::distance(pos, listener);
+        float vol = std::min(1.0f, 1/(dist));
+
+        if (dist > maxDistance)
+            vol = 0.0f;
+        else 
+        {
             if (soundBlocked(pos, listener, occluders))
-                setSoundVolume(handle, volume * 0.3f);
-            else
-                setSoundVolume(handle, volume);
+                vol *= 0.3f;
         }
-        
+        setSoundVolume(handle, vol);
     }
 
     Object::Compose();

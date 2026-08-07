@@ -644,7 +644,7 @@ FbxMesh makeFbx(const char* objPath, const char* texPath,
 
 SoundMesh makeSoundMesh(const char* objPath, const char* texPath,
              Transform transform, std::string src, float volume,
-             float minDist, float maxDist, float rolloff, bool loop)
+             float minDist, float maxDist, bool loop)
 {
     SoundMesh obj;
     loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
@@ -655,7 +655,7 @@ SoundMesh makeSoundMesh(const char* objPath, const char* texPath,
 
     obj.src = src; obj.volume = volume;
     obj.minDist = minDist; obj.maxDist = maxDist;
-    obj.rolloff = rolloff; obj.loop = loop;
+    obj.loop = loop;
 
     return obj;
 }

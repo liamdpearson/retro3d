@@ -113,7 +113,7 @@ static Object* buildNode(const json& j, Object* parent)
         node = new AudioSource{
             transform, j.at("src"), j.at("volume").get<float>(),
             j.at("minDist").get<float>(), j.at("maxDist").get<float>(),
-            j.at("rolloff").get<float>(), j.at("loop").get<bool>()
+            j.at("loop").get<bool>()
         };
     }
     else if (type == "pivot")

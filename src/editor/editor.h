@@ -203,7 +203,7 @@ static Object* buildNode(const json& j, Object* parent)
                 "assets/engine_assets/sound/sound.png",
                 transform, j.at("src"), j.at("volume").get<float>(),
                 j.at("minDist").get<float>(), j.at("maxDist").get<float>(),
-                j.at("rolloff").get<float>(), j.at("loop").get<bool>()
+                j.at("loop").get<bool>()
             )
         );
     }

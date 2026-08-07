@@ -43,7 +43,6 @@
                     "maxDist": 40.0,
                     "minDist": 1.0,
                     "name": "sound",
-                    "rolloff": 1.0,
                     "src": "assets/sfx/test.wav",
                     "tag": "wasd",
                     "transform": [
