@@ -1,5 +1,8 @@
 #include "collisions.h"
 
+#include <cfloat>
+#include <utility>
+
 
 // `colliders` is defined in graphics.cpp now, alongside `occluders`.
 
@@ -77,6 +80,7 @@ void Mesh::Raycast(const glm::vec3& origin, const glm::vec3& dir,
     Object::Raycast(origin, dir, closest, hit);
 }
 
+// searches all objects in scene NOT JUST STATICS OR COLLIDERS (use sparingly)
 Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist)
 {
     glm::vec3 d = glm::normalize(dir);
@@ -86,6 +90,128 @@ Object* raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist)
     for (Object*& obj : parents) obj->Raycast(origin, d, closest, hit);
 
     return hit;
+}
+
+// dont ask me how this function works Claude generated it.
+//
+// Möller–Trumbore. Two-sided on purpose: the back face of a closed mesh blocks
+// light just as well as the front, so there's no winding cull here. Returns on
+// the first hit — a shadow ray only cares *whether* something blocks, not what.
+bool rayBlockedA(const glm::vec3& origin, const glm::vec3& dir,
+                 float maxDist, const std::vector<TriAABB>& tris)
+{
+    const float EPS = 1e-6f;
+
+    for (const Tri& t : tris)
+    {
+        glm::vec3 e1 = t.b - t.a;
+        glm::vec3 e2 = t.c - t.a;
+        glm::vec3 p  = glm::cross(dir, e2);
+        float det = glm::dot(e1, p);
+        if (glm::abs(det) < EPS) continue;   // ray runs parallel to the triangle
+
+        float invDet = 1.0f / det;
+        glm::vec3 tv = origin - t.a;
+
+        float u = glm::dot(tv, p) * invDet;
+        if (u < 0.0f || u > 1.0f) continue;
+
+        glm::vec3 q = glm::cross(tv, e1);
+        float v = glm::dot(dir, q) * invDet;
+        if (v < 0.0f || u + v > 1.0f) continue;
+
+        float hit = glm::dot(e2, q) * invDet;
+        if (hit > EPS && hit < maxDist) return true;   // blocked before the light
+    }
+    return false;
+}
+
+bool rayBlockedB(const glm::vec3& origin, const glm::vec3& destination,
+                 const std::vector<TriAABB>& tris)
+{
+    glm::vec3 dir = destination - origin;
+    float maxDist = glm::length(dir);
+    dir = glm::normalize(dir);
+    return rayBlockedA(origin, dir, maxDist, tris);
+}
+
+// ray vs the entity's collision cylinder, ignoring the world entirely — nothing
+// here consults `colliders`, so a wall between the two doesn't stop the hit.
+//
+// the cylinder is axis-aligned on Y: centre line at (ePos.x, ePos.z), capped at
+// y = ePos.y (feet) and y = ePos.y + eh (head). solved as two intervals along
+// the ray — the disc the ray spends inside the *infinite* cylinder, and the y
+// slab between the caps — which overlap only where the ray is inside the solid.
+bool rayHitEntity(const glm::vec3& origin, const glm::vec3& dir,
+                  const Entity& entity, float maxDist)
+{
+    glm::vec3 ePos = glm::vec3{entity.transform.x, entity.transform.y, entity.transform.z};
+    float er = entity.radius;
+    float eh = entity.height;
+
+    const float EPS = 1e-6f;
+
+    // maxDist is in world units, so the direction has to be unit length for the
+    // t values below to compare against it.
+    glm::vec3 d = glm::normalize(dir);
+
+    // interval the ray spends inside the infinite cylinder. the side test is
+    // purely 2D: drop y and it's a ray-vs-circle quadratic.
+    glm::vec2 d2(d.x, d.z);
+    glm::vec2 m2(origin.x - ePos.x, origin.z - ePos.z);
+
+    float a = glm::dot(d2, d2);
+    float b = glm::dot(m2, d2);
+    float c = glm::dot(m2, m2) - er * er;
+
+    float tEnter, tExit;
+
+    if (a < EPS)
+    {
+        // ray runs straight up or down the cylinder's axis, so the quadratic
+        // degenerates — either it's inside the radius for its whole length or
+        // it never is, and only the caps can bound it.
+        if (c > 0.0f) return false;
+        tEnter = -FLT_MAX;
+        tExit  =  FLT_MAX;
+    }
+    else
+    {
+        float disc = b * b - a * c;
+        if (disc < 0.0f) return false;           // misses the circle entirely
+
+        float sqrtDisc = glm::sqrt(disc);
+        tEnter = (-b - sqrtDisc) / a;
+        tExit  = (-b + sqrtDisc) / a;
+    }
+
+    // clip that against the y slab between the two caps.
+    float yBottom = ePos.y;
+    float yTop    = ePos.y + eh;
+
+    if (glm::abs(d.y) < EPS)
+    {
+        // level ray: it never crosses a cap, so it's either at a height inside
+        // the slab forever or outside it forever.
+        if (origin.y < yBottom || origin.y > yTop) return false;
+    }
+    else
+    {
+        float tY0 = (yBottom - origin.y) / d.y;
+        float tY1 = (yTop    - origin.y) / d.y;
+        if (tY0 > tY1) std::swap(tY0, tY1);      // pointing down flips them
+
+        tEnter = glm::max(tEnter, tY0);
+        tExit  = glm::min(tExit,  tY1);
+    }
+
+    if (tEnter > tExit) return false;            // the two intervals don't overlap
+
+    // finally trim to the segment we actually cast: [0, maxDist]. tExit >= 0
+    // with tEnter < 0 means the origin started inside the cylinder, which counts.
+    if (tExit < 0.0f || tEnter > maxDist) return false;
+
+    return true;
 }
 
 // recursion side same as CollectOccluders
@@ -105,7 +231,7 @@ static AABB triBounds(const Tri& t)
 }
 
 
-// same thing as CollectOccluders just checks for collides aswell
+// same thing as Mesh::CollectOccluders just checks for collides aswell
 void Mesh::CollectColliders(const glm::mat4& parentWorld, std::vector<TriAABB>& out)
 {
     glm::mat4 world = parentWorld * transform.matrix();

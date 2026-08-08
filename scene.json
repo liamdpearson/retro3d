@@ -14,6 +14,7 @@
                 -7.804998397827148
             ],
             "radius": 53.699981689453125,
+            "tag": "",
             "type": "light"
         },
         {
@@ -47,7 +48,7 @@
                     "tag": "wasd",
                     "transform": [
                         -0.07500273734331131,
-                        11.610037803649902,
+                        2.0700411796569824,
                         0.0,
                         0.0,
                         0.0,
@@ -58,15 +59,14 @@
                     "volume": 1.0
                 }
             ],
-            "isStatic": false,
             "name": "knight",
             "obj src": "assets/objects/knight/knight.fbx",
+            "ratiohr": 0.16660000383853912,
             "tag": "entity",
             "tex src": "assets/objects/knight/knight.png",
-            "ratiohr": 0.1666,
             "transform": [
                 -3.810002088546753,
-                10.9849872589111328,
+                10.984987258911133,
                 0.600000262260437,
                 0.0,
                 0.0,

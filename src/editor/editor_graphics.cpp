@@ -606,7 +606,7 @@ CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
 
 
 ObjMesh makeObj(const char* objPath, const char* texPath,
-             Transform transform, bool isStatic, bool collides)
+                Transform transform, bool isStatic, bool collides)
 {
     ObjMesh obj;
     loadOBJ(objPath, obj.vertices, obj.indices);
@@ -625,7 +625,7 @@ ObjMesh makeObj(const char* objPath, const char* texPath,
 
 
 FbxMesh makeFbx(const char* objPath, const char* texPath,
-             Transform transform, bool isStatic)
+                Transform transform, bool isStatic)
 {
     FbxMesh obj;
     loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
@@ -635,6 +635,23 @@ FbxMesh makeFbx(const char* objPath, const char* texPath,
     obj.indexCount = (GLsizei)obj.indices.size();
 
     obj.isStatic = isStatic;
+    obj.objSrc = objPath;
+    obj.texSrc = texPath;
+
+    return obj;
+}
+
+EntityMesh makeEntityMesh(const char* objPath, const char* texPath,
+                          Transform transform, float ratiohr)
+{
+    EntityMesh obj;
+    loadFBX(objPath, obj.vertices, obj.indices, obj.skeleton, obj.animations);
+    obj.transform = transform;
+    obj.world = transform.matrix();
+    obj.texture = loadTexture(texPath);
+    obj.indexCount = (GLsizei)obj.indices.size();
+
+    obj.ratiohr = ratiohr;
     obj.objSrc = objPath;
     obj.texSrc = texPath;
 

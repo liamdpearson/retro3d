@@ -235,6 +235,12 @@ struct FbxMesh : Mesh
     std::string texSrc;
 };
 
+struct EntityMesh : Mesh
+{
+    std::string objSrc;
+    std::string texSrc;
+    float ratiohr;
+};
 
 struct SoundMesh: Mesh
 {
@@ -378,10 +384,13 @@ CameraMesh makeCameraMesh(const char* objPath, const char* texPath,
                           Transform transform, float FOV);
 
 ObjMesh makeObj(const char* objPath, const char* texPath,
-             Transform Transform, bool isStatic, bool collides);
+                Transform Transform, bool isStatic, bool collides);
 
 FbxMesh makeFbx(const char* objPath, const char* texPath,
-             Transform Transform, bool isStatic);
+                Transform Transform, bool isStatic);
+
+EntityMesh makeEntityMesh(const char* objPath, const char* texPath,
+                          Transform Transform, float ratiohr);
 
 SoundMesh makeSoundMesh(const char* objPath, const char* texPath,
              Transform transform, std::string src, float volume,

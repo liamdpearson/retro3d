@@ -145,6 +145,7 @@ static Object* buildNode(const json& j, Object* parent)
 
         light->name = name;
         light->type = type;
+        light->tag = tag;
                             
         parents.push_back(light);
         return nullptr; // a light isn't a scene node — it never enters the graph
@@ -182,6 +183,16 @@ static Object* buildNode(const json& j, Object* parent)
                 j.at("obj src").get<std::string>().c_str(),
                 j.at("tex src").get<std::string>().c_str(),
                 transform, j.value("isStatic", false)
+            )
+        );
+    }
+    else if (type == "entity")
+    {
+        node = new EntityMesh(
+            makeEntityMesh(
+                j.at("obj src").get<std::string>().c_str(),
+                j.at("tex src").get<std::string>().c_str(),
+                transform, j.at("ratiohr").get<float>()
             )
         );
     }
@@ -293,6 +304,8 @@ static json objectToJson(Object* node)
 {
     json j;
 
+    j["tag"] = node->tag;
+
     if (LightMesh* light = dynamic_cast<LightMesh*>(node))
     {
         j["name"]      = light->name;
@@ -303,8 +316,6 @@ static json objectToJson(Object* node)
         j["type"]      = "light";
         return j; // lights carry no transform/children in the scene format
     }
-
-    j["tag"] = node->tag;
 
     if (node->type == "player")
     {
@@ -339,6 +350,13 @@ static json objectToJson(Object* node)
         j["isStatic"]  = fbx->isStatic;
         j["type"]      = "mesh-fbx";
     }
+    else if (EntityMesh* entity = dynamic_cast<EntityMesh*>(node))
+    {
+        j["obj src"]   = entity->objSrc;
+        j["tex src"]   = entity->texSrc;
+        j["ratiohr"]  = entity->ratiohr;
+        j["type"]      = "entity";
+    }
     else if (CameraMesh* cam = dynamic_cast<CameraMesh*>(node))
     {
         j["fov"]  = cam->FOV;
@@ -350,7 +368,6 @@ static json objectToJson(Object* node)
         j["volume"] = sound->volume;
         j["minDist"]  = sound->minDist;
         j["maxDist"] = sound->maxDist;
-        j["rolloff"]  = sound->rolloff;
         j["loop"] = sound->loop;
         j["type"] = "sound";
     }
@@ -424,6 +441,7 @@ std::string buildCurObjectString()
     {
         label = "Selected: " + curObject->name
                 + "\nType: " + curObject->type
+                + "\nTag: " + curObject->tag
              + "\n\nX: " + std::to_string(curObject->transform.x) + "\n"
                  + "Y: " + std::to_string(curObject->transform.y) + "\n"
                  + "Z: " + std::to_string(curObject->transform.z) + "\n\n";

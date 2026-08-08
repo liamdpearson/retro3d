@@ -180,6 +180,16 @@ int main()
             gun->SetAnimation(1, 0.03f, 0);
             playSound2D("assets/sfx/shot.wav", 0.75f);
             player.velocity -= camera.front * 5.0f;
+
+            float entityDist = glm::distance(camera.pos,
+                               glm::vec3{entity->transform.x, entity->transform.y, entity->transform.z});
+            if (rayHitEntity(camera.pos, camera.front, *entity, entityDist))
+            {
+                if (!rayBlockedA(camera.pos, camera.front, entityDist, colliders))
+                {
+                    entity->velocity.y += 3.0f;
+                }
+            }
         }
         
         if (keyPressed(GLFW_KEY_SPACE) && player.grounded)

@@ -582,7 +582,15 @@ Mesh makeFbx(const char* objPath, const char* texPath,
     return obj;
 }
 
-static float getEntityHeight(const std::vector<float>& vertices)
+static void shiftEntityMesh(std::vector<float>& vertices, float factor)
+{
+    for (int i = 0; i < vertices.size(); i += VERTEX_FLOATS)
+    {
+        vertices[i + 1] -= factor;
+    }
+}
+
+static float getEntityHeight(std::vector<float>& vertices)
 {
     float max = 0.0f;
     float min = 0.0f;
@@ -592,6 +600,8 @@ static float getEntityHeight(const std::vector<float>& vertices)
         if (vertices[i + 1] > max) max = vertices[i + 1];
         if (vertices[i + 1] < min) min = vertices[i + 1];
     }
+
+    shiftEntityMesh(vertices, min);
 
     return max - min;
 }
